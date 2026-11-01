@@ -3,14 +3,14 @@ require 'xcodeproj'
 root = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/ios/App')
 project = Xcodeproj::Project.open(File.join(root, 'App.xcodeproj'))
 app = project.targets.find { |target| target.name == 'App' }
-identifier = 'LTTesting.com.brickssoft.locationtracking.example'
+identifier = 'LTTEST0001.com.brickssoft.locationtracking.example'
 entitlements = {
   'application-identifier' => identifier,
   'keychain-access-groups' => [identifier],
   'get-task-allow' => true
 }
 Xcodeproj::Plist.write_to_path(entitlements, File.join(root, 'App/Simulator.entitlements'))
-Xcodeproj::Plist.write_to_path({ 'get-task-allow' => true, 'application-identifier' => 'LTTesting.com.brickssoft.locationtracking.uitests.xctrunner' }, File.join(root, 'App/SimulatorTests.entitlements'))
+Xcodeproj::Plist.write_to_path({ 'get-task-allow' => true, 'application-identifier' => 'LTTEST0001.com.brickssoft.locationtracking.uitests.xctrunner' }, File.join(root, 'App/SimulatorTests.entitlements'))
 project.targets.each do |target|
   target.build_configurations.select { |configuration| configuration.name == 'Debug' }.each do |configuration|
     configuration.build_settings.merge!({
