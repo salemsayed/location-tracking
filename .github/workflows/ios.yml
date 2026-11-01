@@ -126,12 +126,21 @@ jobs:
             ${{ runner.temp }}/ios-release-adhoc-codesign.txt
             ${{ runner.temp }}/release-entitlements.plist
   legacy-runtime:
+    name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
+    env:
+      LEGACY_REQUIRED: ${{ matrix.required }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-26]
+        include:
+          - runner: macos-15
+            label: Required iOS 15 or 16 XCTest
+            required: 'true'
+          - runner: macos-26
+            label: Optional legacy runtime probe
+            required: 'false'
     steps:
       - uses: actions/checkout@v4
       - name: Obtain and boot iOS 15 or 16
@@ -160,6 +169,9 @@ jobs:
       - name: Legacy XCTest
         if: env.LEGACY_AVAILABLE == 'true'
         run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-legacy-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Verify required legacy coverage
+        if: matrix.required == 'true'
+        run: test "$LEGACY_AVAILABLE" = true && test -d "$RUNNER_TEMP/ios-legacy.xcresult"
       - name: Legacy diagnostics
         if: failure() && env.LEGACY_AVAILABLE == 'true'
         run: |
