@@ -44,6 +44,7 @@ jobs:
       - name: Permission UI tests
         run: python3 .github/scripts/ios-ui-run.py xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Route and lifecycle simulator scenarios
+        if: ${{ !cancelled() }}
         env:
           IOS_SCENARIO_APP: ${{ runner.temp }}/ios-unit-build/Build/Products/Debug-iphonesimulator/App.app
         run: python3 .github/scripts/ios-stage2-simulator.py
@@ -198,7 +199,7 @@ jobs:
         if: env.LEGACY_AVAILABLE == 'true'
         run: python3 .github/scripts/ios-ui-run.py xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Legacy route and lifecycle scenarios
-        if: env.LEGACY_AVAILABLE == 'true'
+        if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
         env:
           IOS_SCENARIO_APP: ${{ runner.temp }}/ios-legacy-build/Build/Products/Debug-iphonesimulator/App.app
         run: python3 .github/scripts/ios-stage2-simulator.py
