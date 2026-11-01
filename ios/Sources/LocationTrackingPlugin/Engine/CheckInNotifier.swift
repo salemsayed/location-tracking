@@ -24,13 +24,15 @@ final class CheckInNotifier {
     private let clock: () -> TrackingInstant
     private let center: CheckInCenter
     private let warning: (String) -> Void
+    private let appName: String
     private var generation = 0
     private var lastChecked: Double?
     private var enabled = false
     private var scheduling = false
     private var latest: (TrackingJSON, Double?)?
-    init(queue: DispatchQueue, clock: @escaping () -> TrackingInstant, center: CheckInCenter = SystemCheckInCenter(), warning: @escaping (String) -> Void) {
+    init(queue: DispatchQueue, clock: @escaping () -> TrackingInstant, center: CheckInCenter = SystemCheckInCenter(), appName: String? = nil, warning: @escaping (String) -> Void) {
         self.queue = queue; self.clock = clock; self.center = center; self.warning = warning
+        self.appName = appName ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Location tracking"
     }
     func start() { center.clearDelivered(); lastChecked = nil }
     func cancel() {
@@ -61,7 +63,8 @@ final class CheckInNotifier {
                     self.scheduling = false; self.center.cancel(); return
                 }
                 let content = UNMutableNotificationContent()
-                content.title = settings.text("title", "Location tracking")
+                let title = settings.text("title")
+                content.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? self.appName : title
                 content.body = settings.text("text", "Location tracking is paused. Tap to resume.")
                 content.sound = .default
                 let request = UNNotificationRequest(identifier: Self.identifier, content: content, trigger: UNTimeIntervalNotificationTrigger(timeInterval: max(1, delay), repeats: false))

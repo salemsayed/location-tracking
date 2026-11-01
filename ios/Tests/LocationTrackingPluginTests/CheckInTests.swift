@@ -8,7 +8,7 @@ final class CheckInTests: XCTestCase {
     private let center = FakeCheckInCenter()
     var notifier: CheckInNotifier!
     let settings: TrackingJSON = ["enabled": true, "delay": 120, "title": "Tracking check-in", "text": "Tap to resume"]
-    override func setUp() { notifier = CheckInNotifier(queue: .main, clock: { [unowned self] in self.now }, center: center, warning: { _ in }) }
+    override func setUp() { notifier = CheckInNotifier(queue: .main, clock: { [unowned self] in self.now }, center: center, appName: "Fixture app", warning: { _ in }) }
     override func tearDown() { notifier.cancel() }
     func settle() async { for _ in 0..<3 { await withCheckedContinuation { c in DispatchQueue.main.async { c.resume() } } } }
     func testSchedulesOneRequestMovesOncePerMinuteAndCancels() async throws {
@@ -24,6 +24,13 @@ final class CheckInTests: XCTestCase {
         now.elapsed += 1; notifier.touch(settings, deadlineElapsed: nil); await settle()
         XCTAssertEqual(center.requests.count, 2); XCTAssertNotNil(center.pending)
         notifier.cancel(); XCTAssertNil(center.pending)
+    }
+    func testBlankAndNullTitlesUseAppLabelLikeAndroid() async throws {
+        for title in [NSNull(), "", " \n"] as [Any] {
+            var options = settings; options["title"] = title
+            notifier.touch(options, deadlineElapsed: nil, force: true); await settle()
+            XCTAssertEqual(center.pending?.content.title, "Fixture app")
+        }
     }
     func testNeverSchedulesPastDeadlineAndDisabledOrDeniedCancels() async {
         notifier.touch(settings, deadlineElapsed: now.elapsed + 119999); await settle()

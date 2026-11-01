@@ -287,7 +287,7 @@ final class TrackingEngine {
     }
     func heartbeatStatus() -> TrackingJSON {
         let hb = config.object("heartbeat"), current = window()
-        return ["enabled": hb.flag("enabled", true), "minInterval": hb.number("minInterval", 180), "maxInterval": hb.number("maxInterval", 300), "lastRecordAt": core.runtime["lastRecordAt"] ?? NSNull(), "lastHeartbeatAt": core.runtime["lastHeartbeatAt"] ?? NSNull(), "nextHeartbeatAt": current.nextHeartbeatAt.map { iso(Date(timeIntervalSince1970: $0 / 1000)) } as Any? ?? NSNull(), "strategy": current.enabled ? "timer" : "disabled", "canScheduleExactAlarms": false, "isIgnoringBatteryOptimizations": false, "isDeviceIdleMode": false, "isPowerSaveMode": ProcessInfo.processInfo.isLowPowerModeEnabled, "pendingHeartbeats": (try? core.store.locations().filter { $0.text("event") == "heartbeat" }.count) ?? 0]
+        return ["enabled": hb.flag("enabled", true), "minInterval": hb.number("minInterval", 180), "maxInterval": hb.number("maxInterval", 300), "lastRecordAt": core.runtime["lastRecordAt"] ?? NSNull(), "lastHeartbeatAt": core.runtime["lastHeartbeatAt"] ?? NSNull(), "nextHeartbeatAt": current.nextHeartbeatAt.map { iso(Date(timeIntervalSince1970: $0 / 1000)) } as Any? ?? NSNull(), "strategy": current.enabled ? "timer" : "disabled", "canScheduleExactAlarms": false, "isIgnoringBatteryOptimizations": false, "isDeviceIdleMode": false, "isPowerSaveMode": ProcessInfo.processInfo.isLowPowerModeEnabled, "pendingHeartbeats": (try? core.store.count(event: "heartbeat")) ?? 0]
     }
     private func timestamp(_ value: Any?) -> Double? {
         guard let text = value as? String else { return nil }
