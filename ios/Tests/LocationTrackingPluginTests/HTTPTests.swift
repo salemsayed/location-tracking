@@ -40,7 +40,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(uploaded.count, 1)
         XCTAssertEqual(try store.count, 0)
         XCTAssertEqual(events.last?.1.text("responseText").utf8.count, 16384)
-        syncer.transport.close()
+        syncer.close()
     }
     func testRedirectRefusedAndRecordsRetained() async throws {
         try await prepare()
@@ -48,7 +48,7 @@ final class HTTPTests: XCTestCase {
         do { _ = try await upload(); XCTFail("Redirect should fail") } catch {}
         XCTAssertEqual(try store.count, 1)
         XCTAssertEqual(events.last?.1.number("status"), 307)
-        syncer.transport.close()
+        syncer.close()
     }
     func test401RefreshesAndRetriesSameUUID() async throws {
         try await prepare(["authorization": ["accessToken": "old", "refreshToken": "refresh", "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString, "refreshPayload": ["refreshToken": "{refreshToken}"]]])
@@ -58,7 +58,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try store.count, 0)
         XCTAssertTrue(events.contains { $0.0 == "authorization" && $0.1.flag("success") })
         XCTAssertEqual(events.filter { $0.0 == "http" }.map { $0.1.number("status") }, [401, 200])
-        syncer.transport.close()
+        syncer.close()
     }
     func testTokenChangeDuringUploadNeverRefreshesOldPair() async throws {
         try await prepare(["authorization": ["accessToken": "old", "refreshToken": "refresh", "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -69,7 +69,7 @@ final class HTTPTests: XCTestCase {
         do { _ = try await work.value; XCTFail("Changed authorization should retain queue") } catch {}
         XCTAssertEqual(try store.count, 1)
         XCTAssertFalse(events.contains { $0.0 == "authorization" && $0.1.flag("success") })
-        syncer.transport.close()
+        syncer.close()
     }
     func test413HalvesBatchWithoutChangingUUIDs() async throws {
         try await prepare(["batchSync": true, "maxBatchSize": 4], records: 4)
@@ -78,13 +78,13 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(uploaded.map { $0.text("uuid") }, ["stable-0", "stable-1", "stable-2", "stable-3"])
         XCTAssertEqual(try store.count, 0)
         XCTAssertEqual(events.filter { $0.0 == "http" }.map { $0.1.number("status") }, [413, 200, 200])
-        syncer.transport.close()
+        syncer.close()
     }
     func testRetryAfterStoredAndQueueSurvivesReopen() async throws {
         try await prepare()
         _ = try await control("__faults", ["path": "/locations", "status": 503, "headers": ["Retry-After": "3600"]])
         do { _ = try await upload(); XCTFail("Expected 503") } catch {}
-        syncer.transport.close()
+        syncer.close()
         syncer = nil
         config = nil
         store = nil
@@ -94,7 +94,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try store.locations().map { $0.text("uuid") }, ["stable-0"])
         let wait = try XCTUnwrap(store.load("uploadWait"))
         XCTAssertGreaterThan(wait.number("at") - Date().timeIntervalSince1970 * 1000, 3590000)
-        syncer.transport.close()
+        syncer.close()
     }
     func testRetryKeepsUUID() async throws {
         try await prepare()
@@ -104,7 +104,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(requests.count, 2)
         XCTAssertEqual(requests[0].1["uuids"] as? [String], ["stable-0"])
         XCTAssertEqual(requests[1].1["uuids"] as? [String], ["stable-0"])
-        syncer.transport.close()
+        syncer.close()
     }
     func testManualSyncIgnoresCellularAutoRestriction() async throws {
         try await prepare(["disableAutoSyncOnCellular": true])
@@ -112,14 +112,14 @@ final class HTTPTests: XCTestCase {
         let uploaded = try await upload()
         XCTAssertEqual(uploaded.count, 1)
         XCTAssertEqual(try store.count, 0)
-        syncer.transport.close()
+        syncer.close()
     }
     func testExplicitAuthorizationHeaderWinsOverJWT() async throws {
         try await prepare(["headers": ["authorization": "Custom configured"], "authorization": ["accessToken": "ignored", "refreshToken": "ignored", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
         _ = try await upload()
         XCTAssertFalse(events.contains { $0.0 == "authorization" })
         XCTAssertEqual(try store.count, 0)
-        syncer.transport.close()
+        syncer.close()
     }
     func testUnavailableSecretsBlockRequestsUntilReplacement() async throws {
         try await prepare(["authorization": ["accessToken": "old"]])
@@ -134,7 +134,7 @@ final class HTTPTests: XCTestCase {
         try config.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
         _ = try await upload()
         XCTAssertEqual(try store.count, 0)
-        syncer.transport.close()
+        syncer.close()
     }
     func testPolicyReevaluatesAfterPriorityUploadWhenNetworkChanges() async throws {
         try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true])
@@ -149,7 +149,7 @@ final class HTTPTests: XCTestCase {
         while try store.count > 0, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(try store.count, 0)
         XCTAssertEqual(events.filter { $0.0 == "http" }.compactMap { $0.1["uuids"] as? [String] }, [["priority"], ["stable-0"]])
-        syncer.transport.close()
+        syncer.close()
     }
     func testGzippedLogUploadUsesRealURLSession() async throws {
         try await prepare(records: 0)
@@ -160,7 +160,7 @@ final class HTTPTests: XCTestCase {
         }
         XCTAssertTrue(response.flag("success"))
         XCTAssertEqual(response.number("status"), 200)
-        syncer.transport.close()
+        syncer.close()
     }
     func testBackgroundPassHonorsAutomaticSyncDisabled() async throws {
         try await prepare(["autoSync": false])
@@ -170,7 +170,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try result.get().count, 0)
         XCTAssertEqual(try store.count, 1)
         XCTAssertTrue(events.isEmpty)
-        syncer.transport.close()
+        syncer.close()
     }
     func test401WithoutJWTUsesServerBackoff() async throws {
         try await prepare()
@@ -179,7 +179,7 @@ final class HTTPTests: XCTestCase {
         let wait = try XCTUnwrap(store.load("uploadWait"))
         XCTAssertEqual(wait.text("reason"), "server")
         XCTAssertLessThan(wait.number("at") - Date().timeIntervalSince1970 * 1000, 40000)
-        syncer.transport.close()
+        syncer.close()
     }
     func testExplicitHeaderDoesNotDependOnUnusedJWT() async throws {
         try await prepare(["headers": ["Authorization": "Configured credential"], "authorization": ["accessToken": "old"]])
@@ -189,7 +189,7 @@ final class HTTPTests: XCTestCase {
         try config.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
         _ = try await work.value
         XCTAssertEqual(try store.count, 0)
-        syncer.transport.close()
+        syncer.close()
     }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
@@ -199,7 +199,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(events.last?.1.number("status"), 0)
         XCTAssertEqual(try store.count, 2)
         XCTAssertTrue(events.filter { $0.0 == "http" }.allSatisfy { $0.1["uuids"] as? [String] == ["stable-0"] })
-        syncer.transport.close()
+        syncer.close()
     }
     func waitForQueueToDrain(seconds: Double = 5) async throws {
         let deadline = Date().addingTimeInterval(seconds)
@@ -210,7 +210,7 @@ final class HTTPTests: XCTestCase {
         for maximum in [0, -1] {
             try await prepare(records: 0)
             try config.apply(["persistence": ["maxRecordsToPersist": maximum]], reset: false)
-            syncer.transport.close()
+            syncer.close()
             syncer = nil
             config = nil
             store = nil
@@ -224,7 +224,7 @@ final class HTTPTests: XCTestCase {
             let result: TrackingJSON = try await withCheckedThrowingContinuation { continuation in core.call("sync", [:], native: true) { continuation.resume(with: $0) } }
             XCTAssertEqual((result["locations"] as? [TrackingJSON])?.count, 2)
             XCTAssertEqual(try core.store.count, 0)
-            core.syncer.transport.close()
+            core.syncer.close()
         }
     }
     func testCredentialsReplacementWaitsTenSecondsAndRetainsBusyTrigger() async throws {
@@ -243,7 +243,7 @@ final class HTTPTests: XCTestCase {
         try await waitForQueueToDrain(seconds: 12)
         XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(stopped), 9.8)
         XCTAssertEqual(events.filter { $0.0 == "http" }.map { $0.1.number("status") }, [401, 200])
-        syncer.transport.close()
+        syncer.close()
     }
     func testCredentialsRemovalDuringUploadStartsNoReplacementPass() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "userA"]])
@@ -258,7 +258,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
         XCTAssertFalse(events.contains { $0.0 == "authorization" })
         XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
-        syncer.transport.close()
+        syncer.close()
     }
     func testCredentialsChangedDuringPreemptiveRefreshAreNotOverwritten() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -271,7 +271,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(config.value.object("http").object("authorization").text("accessToken"), "replacement")
         XCTAssertFalse(events.contains { $0.0 == "http" || $0.0 == "authorization" })
         try await waitForQueueToDrain(seconds: 12)
-        syncer.transport.close()
+        syncer.close()
     }
     func testCredentialsRemovedDuringRefreshNeverUploadOldToken() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -284,7 +284,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try store.count, 1)
         XCTAssertTrue(events.isEmpty)
         XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
-        syncer.transport.close()
+        syncer.close()
     }
     func testOrdinaryRejectionStillUploadsPriorityRecords() async throws {
         for batch in [false, true] {
@@ -294,7 +294,7 @@ final class HTTPTests: XCTestCase {
             do { _ = try await upload(); XCTFail("Ordinary rejection must be reported") } catch {}
             XCTAssertEqual(try store.locations().map { $0.text("uuid") }, ["stable-0"])
             XCTAssertEqual(events.filter { $0.0 == "http" }.compactMap { $0.1["uuids"] as? [String] }, batch ? [["stable-0", "priority"], ["priority"]] : [["stable-0"], ["priority"]])
-            syncer.transport.close()
+            syncer.close()
         }
     }
     func testRejectedPriorityIsNotRetriedInSamePass() async throws {
@@ -305,7 +305,7 @@ final class HTTPTests: XCTestCase {
         do { _ = try await upload(); XCTFail("Expected rejection") } catch {}
         XCTAssertEqual(try store.locations().map { $0.text("uuid") }, ["rejected"])
         XCTAssertEqual(events.filter { $0.0 == "http" }.compactMap { $0.1["uuids"] as? [String] }, [["rejected"], ["later"]])
-        syncer.transport.close()
+        syncer.close()
     }
     func testStartupWaitsForInitialNetworkResultAndManualStillBypasses() async throws {
         try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true])
@@ -318,7 +318,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
         _ = try await upload()
         XCTAssertEqual(try store.count, 0)
-        syncer.transport.close()
+        syncer.close()
     }
     func testAuthorizationEventIncludesFullLargeParsedResponse() async throws {
         try await prepare(["authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -330,7 +330,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(event.number("status"), 200)
         XCTAssertEqual(event.object("response").text("padding").count, 40000)
         XCTAssertEqual(event.object("response").text("accessToken"), "fresh")
-        syncer.transport.close()
+        syncer.close()
     }
     func testAuthorizationFailureIncludesStatusAndParsedResponse() async throws {
         try await prepare(["authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -341,7 +341,7 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(event.number("status"), 403)
         XCTAssertEqual(event.object("response").text("reason"), "expired")
         XCTAssertFalse(event.text("error").isEmpty)
-        syncer.transport.close()
+        syncer.close()
     }
     func testAuthorizationTimeoutIncludesZeroStatus() async throws {
         try await prepare(["timeout": 100, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
@@ -350,7 +350,7 @@ final class HTTPTests: XCTestCase {
         let event = try XCTUnwrap(events.first { $0.0 == "authorization" }?.1)
         XCTAssertEqual(event.number("status"), 0)
         XCTAssertNil(event["response"])
-        syncer.transport.close()
+        syncer.close()
     }
     func testReconnectClearsServerWaitButPreservesAuthorizationWait() async throws {
         for reason in ["server", "authorization"] {
@@ -364,7 +364,7 @@ final class HTTPTests: XCTestCase {
                 XCTAssertEqual(try store.count, 1)
                 XCTAssertTrue(events.isEmpty)
             }
-            syncer.transport.close()
+            syncer.close()
         }
     }
     func testReconnectDuringUploadRetainsRecoveryTrigger() async throws {
@@ -376,7 +376,7 @@ final class HTTPTests: XCTestCase {
         syncer.connectivity(connected: true, cellular: false)
         try await waitForQueueToDrain()
         XCTAssertEqual(events.filter { $0.0 == "http" }.map { $0.1.number("status") }, [422, 200])
-        syncer.transport.close()
+        syncer.close()
     }
     func testBackgroundExpirationCancelsAndCompletesExactlyOnce() async throws {
         try await prepare(["autoSync": true])
@@ -390,7 +390,7 @@ final class HTTPTests: XCTestCase {
         try await Task.sleep(nanoseconds: 200_000_000)
         XCTAssertEqual(completed, [false])
         XCTAssertEqual(try store.count, 1)
-        syncer.transport.close()
+        syncer.close()
     }
 
     func testCredentialsRemovalBeforeRetryPreventsAnotherRequest() async throws {
@@ -403,13 +403,13 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
         XCTAssertEqual(try store.count, 1)
         XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
-        syncer.transport.close()
+        syncer.close()
     }
     func testExpiredQueueIsNotUploadedAfterReopenWithoutInsertion() async throws {
         try await prepare(records: 0)
         try config.apply(["persistence": ["maxDaysToPersist": 1]], reset: false)
         try store.insert(["uuid": "expired", "event": "location", "recorded_at": iso(Date().addingTimeInterval(-172800))])
-        syncer.transport.close()
+        syncer.close()
         syncer = nil
         config = nil
         store = nil
@@ -418,7 +418,30 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual((try result.get()["locations"] as? [TrackingJSON])?.count, 0)
         XCTAssertEqual(try core.store.count, 0)
         XCTAssertFalse(events.contains { $0.0 == "http" })
-        core.syncer.transport.close()
+        core.syncer.close()
+    }
+
+    func testClosedTransportRejectsNewTasksWithoutSessionException() async throws {
+        let transport = HTTPTransport()
+        transport.close()
+        let result: Result<HTTPResponse, Error> = await withCheckedContinuation { continuation in
+            transport.send(url: base.appendingPathComponent("locations"), method: "POST", headers: [:], body: Data(), timeout: 1000) { continuation.resume(returning: $0) }
+        }
+        XCTAssertThrowsError(try result.get())
+        transport.close()
+    }
+    func testClosingSyncerPreventsQueuedAutomaticRetry() async throws {
+        try await prepare(records: 0)
+        try store.insert(["uuid": "priority", "event": "heartbeat", "recorded_at": iso()])
+        _ = try await control("__faults", ["path": "/locations", "status": 400])
+        do { _ = try await upload(); XCTFail("Expected rejection") } catch {}
+        syncer.close()
+        let before = events.count
+        let result: Result<[TrackingJSON], Error> = await withCheckedContinuation { continuation in syncer.automatic { continuation.resume(returning: $0) } }
+        XCTAssertThrowsError(try result.get())
+        do { _ = try await upload(); XCTFail("Closed syncer must reject") } catch {}
+        XCTAssertEqual(events.count, before)
+        XCTAssertEqual(try store.count, 1)
     }
 
 }

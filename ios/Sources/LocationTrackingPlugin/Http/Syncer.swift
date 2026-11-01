@@ -10,6 +10,7 @@ final class Syncer {
     private var uploaded: [TrackingJSON] = []
     private var reducedBatch: Int?
     private var busy = false
+    private var closed = false
     private var pendingAutomatic = false
     private var pendingRecovery = false
     private var changedUntil: Date?
@@ -37,6 +38,13 @@ final class Syncer {
         if expires <= 0 { return false }
         return now >= expires || (now >= expires - 60000 && token != shortLivedToken)
     }
+    func close() {
+        guard !closed else { return }
+        closed = true
+        retryTimer?.cancel()
+        cancel()
+        transport.close()
+    }
     func cancel() {
         generation += 1
         pendingAutomatic = false
@@ -57,6 +65,7 @@ final class Syncer {
         automatic()
     }
     func automatic(completion: ((Result<[TrackingJSON], Error>) -> Void)? = nil) {
+        guard !closed else { completion?(.failure(TrackingError("NETWORK_ERROR", "Syncer is closed"))); return }
         if busy {
             pendingAutomatic = true
             if let completion { callbacks.append(completion) }
@@ -86,6 +95,7 @@ final class Syncer {
         run(completion: completion ?? { _ in })
     }
     func run(priorityOnly: Bool = false, completion: @escaping (Result<[TrackingJSON], Error>) -> Void) {
+        guard !closed else { completion(.failure(TrackingError("NETWORK_ERROR", "Syncer is closed"))); return }
         guard !config.value.object("http").text("url").isEmpty else { completion(.failure(TrackingError("NO_URL", "No http.url configured"))); return }
         callbacks.append(completion)
         if busy { if !priorityOnly { self.priorityOnly = false }; return }

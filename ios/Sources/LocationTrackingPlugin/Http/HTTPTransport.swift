@@ -17,6 +17,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
     }
     private var pending: [Int: Pending] = [:]
     private let lock = NSLock()
+    private var closed = false
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
@@ -32,6 +33,8 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        lock.lock()
+        guard !closed else { lock.unlock(); completion(.failure(URLError(.cancelled))); return }
         let task = session.dataTask(with: request)
         let deadline = DispatchWorkItem { [weak self, weak task] in
             guard let self, let task else { return }
@@ -40,12 +43,25 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
             task.cancel()
             item.completion(.failure(URLError(.timedOut)))
         }
-        lock.lock(); pending[task.taskIdentifier] = Pending(timeout: deadline, responseLimit: responseLimit, completion: completion); lock.unlock()
+        pending[task.taskIdentifier] = Pending(timeout: deadline, responseLimit: responseLimit, completion: completion); lock.unlock()
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout / 1000, execute: deadline)
         task.resume()
     }
-    func cancel() { session.getAllTasks { $0.forEach { $0.cancel() } } }
-    func close() { session.invalidateAndCancel() }
+    func cancel() {
+        lock.lock()
+        guard !closed else { lock.unlock(); return }
+        let current = session
+        lock.unlock()
+        current.getAllTasks { $0.forEach { $0.cancel() } }
+    }
+    func close() {
+        lock.lock()
+        guard !closed else { lock.unlock(); return }
+        closed = true
+        let current = session
+        lock.unlock()
+        current.invalidateAndCancel()
+    }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         lock.lock(); pending[dataTask.taskIdentifier]?.response = response as? HTTPURLResponse; lock.unlock()

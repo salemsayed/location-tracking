@@ -21,7 +21,7 @@ final class BridgeTests: XCTestCase {
         core.call("ready", [:]) { result in if case .failure(let error) = result { XCTFail(error.localizedDescription) } }
         XCTAssertTrue(core.ready)
         core.call("getCount", [:]) { result in XCTAssertEqual((try? result.get())?.number("count"), 0) }
-        core.syncer.transport.close()
+        core.syncer.close()
     }
     func testAllowlistMatchesAndroidWithPrecisionAddition() {
         XCTAssertEqual(TrackingCore.allowed, Set(["ready", "getState", "checkPermissions", "requestPermissions", "requestTemporaryFullAccuracy", "getDeviceInfo", "getSensors", "log", "getLog", "getProviderState", "openBatteryOptimizationSettings", "openPowerManagerSettings", "openLocationSettings", "openAppSettings"]))
@@ -48,7 +48,7 @@ final class BridgeTests: XCTestCase {
         }
         let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { _, _ in }, record: { _ in }, url: url)
         XCTAssertEqual(try core.store.locations().map { $0.text("uuid") }, ["fresh"])
-        core.syncer.transport.close()
+        core.syncer.close()
     }
     func testLiveDeliverySurvivesSQLiteFull() throws {
         var events: [(String, TrackingJSON)] = []
@@ -64,7 +64,7 @@ final class BridgeTests: XCTestCase {
         XCTAssertTrue(full["diskFreeBytes"] is NSNull)
         XCTAssertEqual(full.text("uuid"), "live")
         XCTAssertEqual(core.state().text("lastRecordAt"), wire.text("recorded_at"))
-        core.syncer.transport.close()
+        core.syncer.close()
     }
     func testInsertOnlyQueuesAndDeliversNativeAudit() async throws {
         var events: [String] = []
@@ -84,7 +84,7 @@ final class BridgeTests: XCTestCase {
         }
         XCTAssertThrowsError(try failure.get())
         XCTAssertEqual(native.count, 1)
-        core.syncer.transport.close()
+        core.syncer.close()
     }
     func testServiceAvailabilityRefreshRunsOffMainThread() async {
         let services = LocationServices { XCTAssertFalse(Thread.isMainThread); return false }
@@ -103,7 +103,7 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(native.count, 1)
         XCTAssertTrue(events.contains("location"))
         XCTAssertFalse(events.contains("storagefull"))
-        core.syncer.transport.close()
+        core.syncer.close()
     }
 
     func testClearWatchCancelsPendingServiceStatusRead() async {
