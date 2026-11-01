@@ -20,6 +20,7 @@ final class TrackingEngine {
     private var registrationFailures = 0
     private var armedHeartbeat: HeartbeatWindow?
     private var lastAttempt: Double?
+    private var checkInConfig: Data?
     private var assertion: ExecutionAssertion?
     lazy var timers = TrackingTimers(queue: core.queue, now: { [unowned self] in self.core.clock().elapsed }, automatic: core.automaticTimers)
     lazy var notifier = CheckInNotifier(queue: core.queue, clock: core.clock) { [weak self] in self?.core.log.write("warn", $0) }
@@ -116,7 +117,7 @@ final class TrackingEngine {
         }
         execute(motion.updateSettings(MotionSettings.from(config)))
         guard running else { return }
-        applyProfile(); scheduleElapsedStop(); rescheduleHeartbeat(force: true); touchCheckIn(force: true)
+        applyProfile(); scheduleElapsedStop(); rescheduleHeartbeat(force: true); touchCheckIn()
         timers.fireDue()
     }
     func providerChanged(_ value: TrackingJSON) {
@@ -243,7 +244,11 @@ final class TrackingEngine {
     }
     private func touchCheckIn(force: Bool = false) {
         guard running else { return }
-        notifier.touch(config.object("notification").object("resume"), deadlineElapsed: deadline?.elapsedDeadline(minutes: geo.number("stopAfterElapsedMinutes")), force: force)
+        let settings = config.object("notification").object("resume")
+        let encoded = try? jsonData(settings)
+        let changed = encoded != checkInConfig
+        checkInConfig = encoded
+        notifier.touch(settings, deadlineElapsed: deadline?.elapsedDeadline(minutes: geo.number("stopAfterElapsedMinutes")), force: force || changed)
     }
     private func window() -> HeartbeatWindow {
         let now = core.clock(), hb = config.object("heartbeat")

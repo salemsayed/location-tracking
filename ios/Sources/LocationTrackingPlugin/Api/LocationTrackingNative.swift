@@ -65,7 +65,7 @@ public enum LocationTrackingNative {
         route.error = { error in queue.async { if case .success(let core) = result { core.engine.registrationFailed(error) } } }
         route.authorizationChanged = { LocationServices.shared.refresh { permissions.providerChanged?(permissions.provider) } }
         let provider = permissions.provider
-        let foreground = UIApplication.shared.applicationState != .background
+        let foreground = UIApplication.shared.applicationState == .active
         queue.async { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             let provider = permissions.provider
@@ -86,7 +86,7 @@ public enum LocationTrackingNative {
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
             let provider = permissions.provider
-            let foreground = UIApplication.shared.applicationState != .background
+            let foreground = UIApplication.shared.applicationState == .active
             queue.async {
                 if case .failure = result { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
             }

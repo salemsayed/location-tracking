@@ -54,7 +54,7 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
                     UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
                         DispatchQueue.main.async {
                             let pending = requests.filter { $0.identifier == "com.brickssoft.locationtracking.check-in" }.map { request -> TrackingJSON in
-                                ["identifier": request.identifier, "nextAt": request.trigger?.nextTriggerDate()?.timeIntervalSince1970 as Any? ?? NSNull(), "title": request.content.title]
+                                ["identifier": request.identifier, "nextAt": (request.trigger as? UNTimeIntervalNotificationTrigger)?.nextTriggerDate()?.timeIntervalSince1970 as Any? ?? NSNull(), "title": request.content.title]
                             }
                             self.latest = ["state": state["value"] ?? [:], "locations": (locations["value"] as? TrackingJSON)?["locations"] ?? [], "runtime": self.runtime(), "pending": pending, "delivered": delivered.filter { $0.request.identifier == "com.brickssoft.locationtracking.check-in" }.count, "audit": self.audit, "appState": UIApplication.shared.applicationState == .background ? "background" : "foreground"]
                             self.changed?(); completion(self.latest)

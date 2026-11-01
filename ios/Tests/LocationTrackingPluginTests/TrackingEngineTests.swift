@@ -113,6 +113,13 @@ final class TrackingEngineTests: XCTestCase {
         try reopen(); core.engine.context(provider: provider, foreground: true); try core.engine.restore()
         XCTAssertEqual(sequence(), ["tracking_stop:stop_after_elapsed"])
     }
+    func testClockChangeCheckpointSurvivesColdRestore() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
+        try started(); now.wall -= 3 * 3600000; core.engine.clockChanged()
+        advance(20 * 60000, fire: false); core.engine.timers.cancelAll(); core.syncer.close(); core = nil
+        try reopen(); core.engine.context(provider: provider, foreground: true); try core.engine.restore()
+        advance(40 * 60000); XCTAssertEqual(core.state().text("lastStopReason"), "stop_after_elapsed")
+    }
     func testModeSwitchStartsNewWindowAndPreservesPublicGeofenceGate() throws {
         try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
         try started(); core.engine.changePace(true); advance(20 * 60000, fire: false)
