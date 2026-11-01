@@ -68,7 +68,7 @@ final class TrackingCore {
                 let value = method == "resetOdometer" ? 0 : options.number("odometer", -1)
                 guard value.isFinite && value >= 0 else { throw TrackingError("INVALID_ARGUMENT", "odometer must be a finite number >= 0") }
                 var next = runtime; next["odometer"] = value
-                if updateRuntime { try store.save("runtime", next) }; runtime = next; odometer = value
+                try store.save("runtime", next); runtime = next; odometer = value
                 callback(.success(["odometer": value]))
             case "getLocations": callback(.success(["locations": try store.locations(limit: max(0, Int(options.number("limit"))))]))
             case "getCount": callback(.success(["count": try store.count]))
