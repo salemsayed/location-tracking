@@ -230,6 +230,9 @@ jobs:
         if: failure() && env.LEGACY_AVAILABLE == 'true'
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy.xcresult" --output-path "$RUNNER_TEMP/legacy-diagnostics" || true
+          if [ -d "$RUNNER_TEMP/ios-legacy-permissions.xcresult" ]; then
+            xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy-permissions.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-diagnostics" || true
+          fi
           xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "SpringBoard" OR process == "splashboardd" OR process == "installd" OR process == "runningboardd"' > "$RUNNER_TEMP/legacy-launch.log" 2>&1
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -239,6 +242,7 @@ jobs:
             ${{ runner.temp }}/ios-legacy-runtime.txt
             ${{ runner.temp }}/ios-legacy.xcresult
             ${{ runner.temp }}/legacy-diagnostics
+            ${{ runner.temp }}/legacy-ui-diagnostics
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
             ${{ runner.temp }}/ui-samples

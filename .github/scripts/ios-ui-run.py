@@ -21,7 +21,7 @@ try:
             listing = ''
         for line in listing.splitlines():
             fields = line.strip().split(maxsplit=1)
-            if len(fields) != 2 or not fields[1].endswith('/App.app/App'):
+            if len(fields) != 2 or not fields[1].endswith(('/App.app/App', '/PermissionUITests-Runner.app/PermissionUITests-Runner')):
                 continue
             pid = fields[0]
             first = seen.setdefault(pid, time.monotonic())
