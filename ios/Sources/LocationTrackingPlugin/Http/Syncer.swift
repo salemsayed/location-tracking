@@ -67,6 +67,7 @@ final class Syncer {
     private func upload(_ records: [TrackingJSON], http: TrackingJSON, attempt: Int, refreshed: Bool) {
         let captured = generation
         if config.secretsUnavailable {
+            emit("authorization", ["success": false, "status": 0, "error": "Stored authorization is unavailable; set http.authorization again"])
             fail(TrackingError("HTTP_ERROR", "Stored authorization is unavailable; set http.authorization again"), http: http, status: 401, retryAfter: nil)
             return
         }

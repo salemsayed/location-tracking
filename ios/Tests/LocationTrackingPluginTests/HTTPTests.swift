@@ -6,6 +6,7 @@ final class HTTPTests: XCTestCase {
     let base = URL(string: "http://127.0.0.1:8787")!
     var store: TrackingStore!
     var config: TrackingConfig!
+    var secrets: SecretStore!
     var syncer: Syncer!
     var events: [(String, TrackingJSON)] = []
 
@@ -19,7 +20,8 @@ final class HTTPTests: XCTestCase {
     func prepare(_ http: TrackingJSON = [:], records: Int = 1) async throws {
         _ = try await control("__reset")
         store = try TrackingStore(url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("test.sqlite"))
-        config = try TrackingConfig(store: store, secrets: SecretStore(service: "LT.test." + UUID().uuidString))
+        secrets = SecretStore(service: "LT.test." + UUID().uuidString)
+        config = try TrackingConfig(store: store, secrets: secrets)
         try config.apply(["http": TrackingConfig.merge(["url": base.appendingPathComponent("locations").absoluteString, "autoSync": false], http)], reset: true)
         for n in 0..<records { try store.insert(["uuid": "stable-\(n)", "event": "location", "recorded_at": iso(), "coords": ["latitude": 24.7136, "longitude": 46.6753, "accuracy": 5.2]]) }
         events = []
@@ -106,6 +108,20 @@ final class HTTPTests: XCTestCase {
         try await prepare(["headers": ["authorization": "Custom configured"], "authorization": ["accessToken": "ignored", "refreshToken": "ignored", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
         _ = try await upload()
         XCTAssertFalse(events.contains { $0.0 == "authorization" })
+        XCTAssertEqual(try store.count, 0)
+        syncer.transport.close()
+    }
+    func testUnavailableSecretsBlockRequestsUntilReplacement() async throws {
+        try await prepare(["authorization": ["accessToken": "old"]])
+        try secrets.save(nil)
+        config = try TrackingConfig(store: store, secrets: secrets)
+        syncer = Syncer(queue: .main, store: store, config: config) { [weak self] name, payload in self?.events.append((name, payload)) }
+        do { _ = try await upload(); XCTFail("Unreadable authorization must block uploads") } catch {}
+        XCTAssertEqual(try store.count, 1)
+        XCTAssertFalse(events.contains { $0.0 == "http" })
+        XCTAssertTrue(events.contains { $0.0 == "authorization" && !$0.1.flag("success") })
+        try config.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
+        _ = try await upload()
         XCTAssertEqual(try store.count, 0)
         syncer.transport.close()
     }
