@@ -17,7 +17,9 @@ final class Permissions: NSObject, CLLocationManagerDelegate {
         self.manager = manager
         super.init()
         manager.delegate = self
+        LocationServices.shared.refresh()
         activeObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            LocationServices.shared.refresh()
             guard let self, self.awaitingAlways else { return }
             self.finishAuthorization()
         }
@@ -26,7 +28,7 @@ final class Permissions: NSObject, CLLocationManagerDelegate {
     var provider: TrackingJSON {
         let status = manager.authorizationStatus
         let authorized = status == .authorizedAlways || status == .authorizedWhenInUse
-        let enabled = CLLocationManager.locationServicesEnabled()
+        let enabled = LocationServices.shared.enabled
         return ["enabled": enabled, "gps": enabled, "network": enabled, "permission": status == .authorizedAlways ? "always" : authorized ? "when_in_use" : "denied", "accuracy": authorized ? (manager.accuracyAuthorization == .fullAccuracy ? "precise" : "approximate") : "none", "backend": "corelocation"]
     }
     func status(_ completion: @escaping (TrackingJSON) -> Void) {
@@ -89,7 +91,10 @@ final class Permissions: NSObject, CLLocationManagerDelegate {
         done?()
     }
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        providerChanged?(provider)
+        LocationServices.shared.refresh { [weak self] in
+            guard let self else { return }
+            self.providerChanged?(self.provider)
+        }
         if awaitingAlways {
             if manager.authorizationStatus == .authorizedAlways { finishAuthorization() }
         } else if manager.authorizationStatus != .notDetermined { finishAuthorization() }

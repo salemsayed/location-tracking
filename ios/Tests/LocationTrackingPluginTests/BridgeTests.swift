@@ -38,4 +38,58 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(Permissions.order, ["location", "notifications", "activityRecognition", "backgroundLocation"])
     }
 
+    func testReopenPrunesExpiredQueueBeforeAnyReadOrUpload() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("expired.sqlite")
+        do {
+            let store = try TrackingStore(url: url)
+            try store.save("config", ["persistence": ["maxDaysToPersist": 1]])
+            try store.insert(["uuid": "expired", "event": "location", "recorded_at": iso(Date().addingTimeInterval(-172800))])
+            try store.insert(["uuid": "fresh", "event": "location", "recorded_at": iso()])
+        }
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { _, _ in }, record: { _ in }, url: url)
+        XCTAssertEqual(try core.store.locations().map { $0.text("uuid") }, ["fresh"])
+        core.syncer.transport.close()
+    }
+    func testLiveDeliverySurvivesSQLiteFull() throws {
+        var events: [(String, TrackingJSON)] = []
+        var native: [TrackingJSON] = []
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { events.append(($0, $1)) }, record: { native.append($0) }, url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("full.sqlite"))
+        try core.store.execute("PRAGMA max_page_count=1")
+        let wire: TrackingJSON = ["uuid": "live", "event": "current_position", "recorded_at": iso(), "extras": ["large": String(repeating: "x", count: 1000000)]]
+        core.deliver(wire)
+        XCTAssertEqual(try core.store.count, 0)
+        XCTAssertEqual(native.map { $0.text("uuid") }, ["live"])
+        XCTAssertTrue(events.contains { $0.0 == "location" && $0.1.text("uuid") == "live" })
+        let full = try XCTUnwrap(events.first { $0.0 == "storagefull" }?.1)
+        XCTAssertTrue(full["diskFreeBytes"] is NSNull)
+        XCTAssertEqual(full.text("uuid"), "live")
+        XCTAssertEqual(core.state().text("lastRecordAt"), wire.text("recorded_at"))
+        core.syncer.transport.close()
+    }
+    func testInsertOnlyQueuesAndDeliversNativeAudit() async throws {
+        var events: [String] = []
+        var native: [TrackingJSON] = []
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { name, _ in events.append(name) }, record: { native.append($0) }, url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("insert.sqlite"))
+        let result: Result<TrackingJSON, Error> = await withCheckedContinuation { continuation in
+            core.call("insertLocation", ["location": ["coords": ["latitude": 24, "longitude": 46, "accuracy": 5]]], native: true) { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(try result.get().text("uuid").isEmpty)
+        XCTAssertEqual(try core.store.count, 1)
+        XCTAssertEqual(native.count, 1)
+        XCTAssertFalse(events.contains("location"))
+        XCTAssertTrue(core.state()["lastRecordAt"] is NSNull)
+        try core.store.execute("PRAGMA query_only=ON")
+        let failure: Result<TrackingJSON, Error> = await withCheckedContinuation { continuation in
+            core.call("insertLocation", ["location": ["coords": ["latitude": 24, "longitude": 46, "accuracy": 5]]], native: true) { continuation.resume(returning: $0) }
+        }
+        XCTAssertThrowsError(try failure.get())
+        XCTAssertEqual(native.count, 1)
+        core.syncer.transport.close()
+    }
+    func testServiceAvailabilityRefreshRunsOffMainThread() async {
+        let services = LocationServices { XCTAssertFalse(Thread.isMainThread); return false }
+        await withCheckedContinuation { continuation in services.refresh { continuation.resume() } }
+        XCTAssertFalse(services.enabled)
+    }
+
 }

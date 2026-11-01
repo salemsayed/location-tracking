@@ -27,13 +27,17 @@ final class TrackingStore {
 
     deinit { sqlite3_close(db) }
 
+    private func databaseError(_ message: String) -> TrackingError {
+        TrackingError(sqlite3_errcode(db) == SQLITE_FULL ? "STORAGE_FULL" : "IO_ERROR", message)
+    }
+
     func execute(_ sql: String) throws {
-        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw TrackingError("IO_ERROR", "Database operation failed") }
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else { throw databaseError("Database operation failed") }
     }
 
     private func statement(_ sql: String, _ values: [String] = []) throws -> OpaquePointer {
         var query: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &query, nil) == SQLITE_OK, let query else { throw TrackingError("IO_ERROR", "Cannot prepare database operation") }
+        guard sqlite3_prepare_v2(db, sql, -1, &query, nil) == SQLITE_OK, let query else { throw databaseError("Cannot prepare database operation") }
         for (index, value) in values.enumerated() {
             guard sqlite3_bind_text(query, Int32(index + 1), value, -1, transient) == SQLITE_OK else {
                 sqlite3_finalize(query)
@@ -46,7 +50,7 @@ final class TrackingStore {
     private func write(_ sql: String, _ values: [String]) throws {
         let query = try statement(sql, values)
         defer { sqlite3_finalize(query) }
-        guard sqlite3_step(query) == SQLITE_DONE else { throw TrackingError("IO_ERROR", "Cannot write database value") }
+        guard sqlite3_step(query) == SQLITE_DONE else { throw databaseError("Cannot write database value") }
     }
 
     func transaction<T>(_ action: () throws -> T) throws -> T {
@@ -115,7 +119,7 @@ final class TrackingStore {
                 let cutoff = iso(now.addingTimeInterval(-Double(days) * 86400))
                 try write("DELETE FROM records WHERE json_extract(value,'$.recorded_at') < ?", [cutoff])
             }
-            if maximum >= 0 {
+            if maximum > 0 {
                 try execute("DELETE FROM records WHERE id NOT IN (SELECT id FROM records ORDER BY id DESC LIMIT \(maximum))")
             }
     }

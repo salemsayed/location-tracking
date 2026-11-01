@@ -29,18 +29,17 @@ final class TrackingCore {
         log = TrackingLog(store: store)
         config = try TrackingConfig(store: store, secrets: SecretStore())
         log.configure(config.value.object("logger"))
+        let persistence = config.value.object("persistence")
+        try store.prune(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
         runtime = try store.load("runtime") ?? [:]
         odometer = runtime.number("odometer")
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
-            self.syncer.connected = path.status == .satisfied
-            self.syncer.cellular = path.usesInterfaceType(.cellular)
-            self.network = !self.syncer.connected ? "none" : self.syncer.cellular ? "cellular" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other"
+            self.network = path.status != .satisfied ? "none" : path.usesInterfaceType(.cellular) ? "cellular" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other"
+            self.syncer.connectivity(connected: path.status == .satisfied, cellular: path.usesInterfaceType(.cellular))
             self.emit("connectivitychange", ["connected": self.syncer.connected, "type": self.network])
-            self.syncer.automatic()
         }
         monitor.start(queue: queue)
-        syncer.automatic()
     }
     deinit { monitor.cancel() }
     static let allowed = Set(["ready", "getState", "checkPermissions", "requestPermissions", "requestTemporaryFullAccuracy", "getDeviceInfo", "getSensors", "log", "getLog", "getProviderState", "openBatteryOptimizationSettings", "openPowerManagerSettings", "openLocationSettings", "openAppSettings"])
@@ -69,7 +68,7 @@ final class TrackingCore {
                 let value = method == "resetOdometer" ? 0 : options.number("odometer", -1)
                 guard value.isFinite && value >= 0 else { throw TrackingError("INVALID_ARGUMENT", "odometer must be a finite number >= 0") }
                 var next = runtime; next["odometer"] = value
-                try store.save("runtime", next); runtime = next; odometer = value
+                if updateRuntime { try store.save("runtime", next) }; runtime = next; odometer = value
                 callback(.success(["odometer": value]))
             case "getLocations": callback(.success(["locations": try store.locations(limit: max(0, Int(options.number("limit"))))]))
             case "getCount": callback(.success(["count": try store.count]))
@@ -95,7 +94,7 @@ final class TrackingCore {
                                 if watch && self.config.value.object("geolocation").object("filter").flag("rejectMockLocations") && fix.sourceInformation?.isSimulatedBySoftware == true { return }
                                 let extras = self.config.value.object("persistence").object("extras").merging(options.object("extras")) { _, new in new }
                                 let wire = RecordFactory.make(event: watch ? "watch_position" : "current_position", fix: fix, extras: extras, odometer: self.odometer, provider: provider, network: self.network)
-                                if options.flag("persist", !watch) { try self.persist(wire) }
+                                if options.flag("persist", !watch) { self.deliver(wire) }
                                 callback(.success(wire))
                             } catch { callback(.failure(error)) }
                         }
@@ -169,23 +168,32 @@ final class TrackingCore {
                 for key in ["altitude", "altitude_accuracy", "speed", "speed_accuracy", "heading", "heading_accuracy"] { normalized[key] = coords[key] ?? NSNull() }
                 wire["coords"] = normalized
                 self.queue.async {
-                    do { try self.persist(wire); callback(.success(["uuid": wire.text("uuid")])) }
+                    do { try self.persist(wire, updateRuntime: false); self.record(wire); self.syncer.automatic(); callback(.success(["uuid": wire.text("uuid")])) }
                     catch { callback(.failure(error)) }
                 }
             }
         } catch { callback(.failure(error)) }
     }
-    private func persist(_ wire: TrackingJSON) throws {
+    func deliver(_ wire: TrackingJSON) {
+        var stored = false
+        do { try persist(wire, updateRuntime: true); stored = true }
+        catch {
+            log.write("error", "Failed to persist position")
+            if (error as? TrackingError)?.code == "STORAGE_FULL" { emit("storagefull", ["uuid": wire.text("uuid"), "event": wire.text("event"), "diskFreeBytes": NSNull()]) }
+            runtime["lastRecordAt"] = wire["recorded_at"]
+        }
+        record(wire)
+        emit("location", wire)
+        if stored { syncer.automatic() }
+    }
+    private func persist(_ wire: TrackingJSON, updateRuntime: Bool) throws {
         var next = runtime; next["lastRecordAt"] = wire["recorded_at"]
         let persistence = config.value.object("persistence")
         try store.transaction {
             try store.insert(wire)
-            try store.save("runtime", next)
+            if updateRuntime { try store.save("runtime", next) }
             try store.enforceRetention(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
         }
-        runtime = next
-        record(wire)
-        emit("location", wire)
-        syncer.automatic()
+        if updateRuntime { runtime = next }
     }
 }

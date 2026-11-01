@@ -33,11 +33,13 @@
     await plugin.reset({ config: { http: { autoSync: false } } });
     let received = 0;
     const listener = await plugin.addListener('location', () => received++);
+    const lastRecordAt = (await plugin.getState()).lastRecordAt;
     const id = (await plugin.insertLocation({ location: { coords: { latitude: 24.7136, longitude: 46.6753, accuracy: 5.2 } } })).uuid;
     assert((await plugin.getCount()).count === 1, 'queue count');
     assert((await plugin.getLocations()).locations[0].uuid === id, 'insert UUID retained');
     await pause(100);
-    assert(received === 1, 'location listener receives insertion');
+    assert(received === 0, 'insertion does not emit a tracking event');
+    assert((await plugin.getState()).lastRecordAt === lastRecordAt, 'insertion does not alter tracking state');
     assert((await plugin.destroyLocation({ uuid: id })).deleted, 'delete location');
     await plugin.destroyLocations();
     await plugin.setOdometer({ odometer: 123.5 });
@@ -52,8 +54,10 @@
     await plugin.getPowerManagerInfo();
     assert(!(await plugin.openBatteryOptimizationSettings()).opened, 'battery settings unavailable');
     assert(!(await plugin.openPowerManagerSettings()).opened, 'power manager unavailable');
-    const fix = await plugin.getCurrentPosition({ samples: 1, persist: false, timeout: 30000 });
+    const fix = await plugin.getCurrentPosition({ samples: 1, persist: true, timeout: 30000 });
     assert(fix.coords.accuracy >= 0, 'current Core Location position');
+    await pause(100);
+    assert(received === 1, 'location listener receives current position');
     let callbacks = 0;
     let watchError;
     const watchID = await plugin.watchPosition({ interval: 0 }, (location, error) => {
