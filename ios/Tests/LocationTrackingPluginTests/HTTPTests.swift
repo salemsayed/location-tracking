@@ -12,11 +12,36 @@ final class HTTPTests: XCTestCase {
     var events: [(String, TrackingJSON)] = []
 
     func control(_ path: String, _ value: TrackingJSON = [:]) async throws -> Data {
-        var request = URLRequest(url: base.appendingPathComponent(path))
+        var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 5)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try jsonData(value)
         return try await URLSession.shared.data(for: request).0
+    }
+    func gate(_ name: String) async throws -> TrackingJSON {
+        let url = base.appendingPathComponent("__gates/" + name)
+        return try jsonObject(try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 5)).0)
+    }
+    func waitUntil(_ description: String, seconds: Double = 5, condition: () async throws -> Bool) async throws {
+        let deadline = TrackingClock.elapsedMilliseconds() + seconds * 1000
+        while TrackingClock.elapsedMilliseconds() < deadline {
+            if try await condition() { return }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTFail("Timed out waiting for " + description)
+        throw TrackingError("TIMEOUT", description)
+    }
+    func waitForRequest(_ name: String = "race") async throws {
+        try await waitUntil("held request " + name) { try await self.gate(name).number("waiting") > 0 }
+    }
+    func release(_ name: String = "race") async throws { _ = try await control("__gates/" + name) }
+    func observeNoAdditionalHTTP(for seconds: Double = 0.5) async throws {
+        let count = events.filter { $0.0 == "http" }.count
+        let deadline = TrackingClock.elapsedMilliseconds() + seconds * 1000
+        while TrackingClock.elapsedMilliseconds() < deadline {
+            XCTAssertEqual(events.filter { $0.0 == "http" }.count, count)
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
     func prepare(_ http: TrackingJSON = [:], records: Int = 1) async throws {
         _ = try await control("__reset")
@@ -62,10 +87,11 @@ final class HTTPTests: XCTestCase {
     }
     func testTokenChangeDuringUploadNeverRefreshesOldPair() async throws {
         try await prepare(["authorization": ["accessToken": "old", "refreshToken": "refresh", "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
-        _ = try await control("__faults", ["path": "/locations", "status": 401, "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "status": 401, "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": ["accessToken": "changed"]]], reset: false)
+        try await release()
         do { _ = try await work.value; XCTFail("Changed authorization should retain queue") } catch {}
         XCTAssertEqual(try store.count, 1)
         XCTAssertFalse(events.contains { $0.0 == "authorization" && $0.1.flag("success") })
@@ -139,12 +165,13 @@ final class HTTPTests: XCTestCase {
     func testPolicyReevaluatesAfterPriorityUploadWhenNetworkChanges() async throws {
         try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true])
         try store.insert(["uuid": "priority", "event": "heartbeat", "recorded_at": iso()])
-        _ = try await control("__faults", ["path": "/locations", "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "hold": "race"])
         syncer.cellular = true
         syncer.automatic()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         syncer.cellular = false
         syncer.automatic()
+        try await release()
         let deadline = Date().addingTimeInterval(5)
         while try store.count > 0, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
         XCTAssertEqual(try store.count, 0)
@@ -183,10 +210,11 @@ final class HTTPTests: XCTestCase {
     }
     func testExplicitHeaderDoesNotDependOnUnusedJWT() async throws {
         try await prepare(["headers": ["Authorization": "Configured credential"], "authorization": ["accessToken": "old"]])
-        _ = try await control("__faults", ["path": "/locations", "status": 500, "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "status": 500, "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
+        try await release()
         _ = try await work.value
         XCTAssertEqual(try store.count, 0)
         syncer.close()
@@ -229,15 +257,16 @@ final class HTTPTests: XCTestCase {
     }
     func testCredentialsReplacementWaitsTenSecondsAndRetainsBusyTrigger() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "userA"]])
-        _ = try await control("__faults", ["path": "/locations", "status": 401, "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "status": 401, "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": ["accessToken": "userB"]]], reset: false)
         syncer.automatic()
+        try await release()
         do { _ = try await work.value; XCTFail("Expected changed outcome") } catch {}
         let stopped = Date()
         syncer.automatic()
-        try await Task.sleep(nanoseconds: 500_000_000)
+        try await observeNoAdditionalHTTP()
         XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
         XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
         try await waitForQueueToDrain(seconds: 12)
@@ -247,13 +276,14 @@ final class HTTPTests: XCTestCase {
     }
     func testCredentialsRemovalDuringUploadStartsNoReplacementPass() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "userA"]])
-        _ = try await control("__faults", ["path": "/locations", "status": 401, "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "status": 401, "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": NSNull()]], reset: false)
         syncer.automatic()
+        try await release()
         do { _ = try await work.value; XCTFail("Expected changed outcome") } catch {}
-        try await Task.sleep(nanoseconds: 700_000_000)
+        try await observeNoAdditionalHTTP(for: 0.7)
         XCTAssertEqual(try store.count, 1)
         XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
         XCTAssertFalse(events.contains { $0.0 == "authorization" })
@@ -262,11 +292,12 @@ final class HTTPTests: XCTestCase {
     }
     func testCredentialsChangedDuringPreemptiveRefreshAreNotOverwritten() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
-        _ = try await control("__faults", ["path": "/auth/refresh", "delayMs": 300])
+        _ = try await control("__faults", ["path": "/auth/refresh", "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": ["accessToken": "replacement", "expires": -1]]], reset: false)
         syncer.automatic()
+        try await release()
         do { _ = try await work.value; XCTFail("Expected changed outcome") } catch {}
         XCTAssertEqual(config.value.object("http").object("authorization").text("accessToken"), "replacement")
         XCTAssertFalse(events.contains { $0.0 == "http" || $0.0 == "authorization" })
@@ -275,12 +306,13 @@ final class HTTPTests: XCTestCase {
     }
     func testCredentialsRemovedDuringRefreshNeverUploadOldToken() async throws {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
-        _ = try await control("__faults", ["path": "/auth/refresh", "delayMs": 300])
+        _ = try await control("__faults", ["path": "/auth/refresh", "hold": "race"])
         let work = Task { try await upload() }
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         try config.apply(["http": ["authorization": NSNull()]], reset: false)
+        try await release()
         do { _ = try await work.value; XCTFail("Expected changed outcome") } catch {}
-        try await Task.sleep(nanoseconds: 700_000_000)
+        try await observeNoAdditionalHTTP(for: 0.7)
         XCTAssertEqual(try store.count, 1)
         XCTAssertTrue(events.isEmpty)
         XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
@@ -311,10 +343,10 @@ final class HTTPTests: XCTestCase {
         try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true])
         syncer.connectivityKnown = false
         syncer.automatic()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await observeNoAdditionalHTTP(for: 0.1)
         XCTAssertTrue(events.isEmpty)
         syncer.connectivity(connected: true, cellular: true)
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await observeNoAdditionalHTTP(for: 0.1)
         XCTAssertTrue(events.isEmpty)
         _ = try await upload()
         XCTAssertEqual(try store.count, 0)
@@ -360,7 +392,7 @@ final class HTTPTests: XCTestCase {
             syncer.connectivity(connected: true, cellular: false)
             if reason == "server" { try await waitForQueueToDrain() }
             else {
-                try await Task.sleep(nanoseconds: 200_000_000)
+                try await observeNoAdditionalHTTP(for: 0.2)
                 XCTAssertEqual(try store.count, 1)
                 XCTAssertTrue(events.isEmpty)
             }
@@ -369,25 +401,27 @@ final class HTTPTests: XCTestCase {
     }
     func testReconnectDuringUploadRetainsRecoveryTrigger() async throws {
         try await prepare(["autoSync": true])
-        _ = try await control("__faults", ["path": "/locations", "status": 422, "delayMs": 300])
+        _ = try await control("__faults", ["path": "/locations", "status": 422, "hold": "race"])
         syncer.automatic()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         syncer.connectivity(connected: false, cellular: false)
         syncer.connectivity(connected: true, cellular: false)
+        try await release()
         try await waitForQueueToDrain()
         XCTAssertEqual(events.filter { $0.0 == "http" }.map { $0.1.number("status") }, [422, 200])
         syncer.close()
     }
     func testBackgroundExpirationCancelsAndCompletesExactlyOnce() async throws {
         try await prepare(["autoSync": true])
-        _ = try await control("__faults", ["path": "/locations", "delayMs": 2000])
+        _ = try await control("__faults", ["path": "/locations", "hold": "race"])
         var completed: [Bool] = []
         let task = BackgroundUpload(syncer: syncer) { completed.append($0) }
         task.start()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitForRequest()
         task.expire()
         task.expire()
-        try await Task.sleep(nanoseconds: 200_000_000)
+        try await release()
+        try await observeNoAdditionalHTTP(for: 0.2)
         XCTAssertEqual(completed, [false])
         XCTAssertEqual(try store.count, 1)
         syncer.close()
@@ -397,7 +431,7 @@ final class HTTPTests: XCTestCase {
         try await prepare(["autoSync": true, "authorization": ["accessToken": "old"]])
         _ = try await control("__faults", ["path": "/locations", "status": 500])
         let work = Task { try await upload() }
-        while !events.contains(where: { $0.0 == "http" }) { try await Task.sleep(nanoseconds: 20_000_000) }
+        try await waitUntil("first failed response") { self.events.contains { $0.0 == "http" } }
         try config.apply(["http": ["authorization": NSNull()]], reset: false)
         do { _ = try await work.value; XCTFail("Expected changed outcome before retry") } catch {}
         XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
@@ -455,7 +489,7 @@ final class HTTPTests: XCTestCase {
             XCTAssertEqual(try store.load("uploadWait")?.text("reason"), reason)
             syncer.cellular = false
             syncer.automatic()
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await observeNoAdditionalHTTP(for: 0.1)
             XCTAssertEqual(try store.count, 1)
             XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
             syncer.close()
