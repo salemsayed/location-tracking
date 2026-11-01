@@ -41,11 +41,13 @@ public enum LocationTrackingNative {
             if identifiers.contains(refreshIdentifier) {
                 BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshIdentifier, using: queue) { task in
                     guard case .success(let core) = result else { task.setTaskCompleted(success: false); return }
-                    task.expirationHandler = { queue.async { core.syncer.cancel() } }
-                    core.syncer.automatic { outcome in
-                        task.setTaskCompleted(success: (try? outcome.get()) != nil)
+                    let upload = BackgroundUpload(syncer: core.syncer) { success in
+                        task.expirationHandler = nil
+                        task.setTaskCompleted(success: success)
                         scheduleRefresh()
                     }
+                    task.expirationHandler = { queue.async { upload.expire() } }
+                    upload.start()
                 }
                 backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in scheduleRefresh() }
             }

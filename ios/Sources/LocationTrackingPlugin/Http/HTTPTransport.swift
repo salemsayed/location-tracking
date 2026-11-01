@@ -12,6 +12,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
         var data = Data()
         var response: HTTPURLResponse?
         var timeout: DispatchWorkItem?
+        let responseLimit: Int?
         let completion: (Result<HTTPResponse, Error>) -> Void
     }
     private var pending: [Int: Pending] = [:]
@@ -25,7 +26,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
         config.waitsForConnectivity = false
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
-    func send(url: URL, method: String, headers: [String: String], body: Data, timeout: Double, completion: @escaping (Result<HTTPResponse, Error>) -> Void) {
+    func send(url: URL, method: String, headers: [String: String], body: Data, timeout: Double, responseLimit: Int? = 16384, completion: @escaping (Result<HTTPResponse, Error>) -> Void) {
         var request = URLRequest(url: url, timeoutInterval: timeout / 1000)
         request.httpMethod = method
         request.httpBody = body
@@ -39,7 +40,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
             task.cancel()
             item.completion(.failure(URLError(.timedOut)))
         }
-        lock.lock(); pending[task.taskIdentifier] = Pending(timeout: deadline, completion: completion); lock.unlock()
+        lock.lock(); pending[task.taskIdentifier] = Pending(timeout: deadline, responseLimit: responseLimit, completion: completion); lock.unlock()
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout / 1000, execute: deadline)
         task.resume()
     }
@@ -53,7 +54,8 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         lock.lock()
         if var item = pending[dataTask.taskIdentifier] {
-            item.data.append(data.prefix(max(0, 16384 - item.data.count)))
+            if let limit = item.responseLimit { item.data.append(data.prefix(max(0, limit - item.data.count))) }
+            else { item.data.append(data) }
             pending[dataTask.taskIdentifier] = item
         }
         lock.unlock()

@@ -10,6 +10,13 @@ final class Syncer {
     private var uploaded: [TrackingJSON] = []
     private var reducedBatch: Int?
     private var busy = false
+    private var pendingAutomatic = false
+    private var pendingRecovery = false
+    private var changedUntil: Date?
+    private var rejectedPriority = Set<String>()
+    private var passFailure: (Error, TrackingJSON, Int, Double?)?
+    private enum Renewal { case renewed(TrackingJSON), changed, failed(Error) }
+    var connectivityKnown = false
     private var priorityOnly = false
     private var generation = 0
     private var shortLivedToken: String?
@@ -32,15 +39,32 @@ final class Syncer {
     }
     func cancel() {
         generation += 1
+        pendingAutomatic = false
         transport.cancel()
         if busy { finish(.failure(TrackingError("NETWORK_ERROR", "Upload cancelled"))) }
     }
+    func connectivity(connected: Bool, cellular: Bool) {
+        let recovered = connectivityKnown && !self.connected && connected
+        connectivityKnown = true
+        self.connected = connected
+        self.cellular = cellular
+        if recovered && busy { pendingRecovery = true }
+        if recovered, let wait = try? store.load("uploadWait"), wait.text("reason") == "server" {
+            try? store.save("uploadWait", [:])
+            failures = 0
+            retryTimer?.cancel()
+        }
+        automatic()
+    }
     func automatic(completion: ((Result<[TrackingJSON], Error>) -> Void)? = nil) {
         if busy {
+            pendingAutomatic = true
             if let completion { callbacks.append(completion) }
             return
         }
-        guard connected else { completion?(.success([])); return }
+        guard connectivityKnown && connected else { completion?(.success([])); return }
+        if let until = changedUntil, until > Date() { schedule(until.timeIntervalSince1970 * 1000); completion?(.success([])); return }
+        changedUntil = nil
         let records: [TrackingJSON]
         do { records = try store.locations() }
         catch { completion?(.failure(error)); return }
@@ -66,7 +90,7 @@ final class Syncer {
         callbacks.append(completion)
         if busy { if !priorityOnly { self.priorityOnly = false }; return }
         self.priorityOnly = priorityOnly
-        busy = true; uploaded = []; reducedBatch = nil
+        busy = true; uploaded = []; reducedBatch = nil; rejectedPriority = []; passFailure = nil
         next()
     }
     private func next() {
@@ -74,8 +98,12 @@ final class Syncer {
             let http = config.value.object("http")
             let limit = http.flag("batchSync") ? max(1, Int(http.number("maxBatchSize", 100))) : 1
             let size = reducedBatch.map { min(limit, $0) } ?? limit
-            let chunk = priorityOnly ? Array(try store.locations().filter { priority.contains($0.text("event")) }.prefix(size)) : try store.locations(limit: size)
-            if chunk.isEmpty { failures = 0; try store.save("uploadWait", [:]); finish(.success(uploaded)); return }
+            let chunk = priorityOnly ? Array(try store.locations().filter { priority.contains($0.text("event")) && !rejectedPriority.contains($0.text("uuid")) }.prefix(size)) : try store.locations(limit: size)
+            if chunk.isEmpty {
+                if let failure = passFailure { fail(failure.0, http: failure.1, status: failure.2, retryAfter: failure.3, authorizationFailure: false) }
+                else { failures = 0; try store.save("uploadWait", [:]); finish(.success(uploaded)) }
+                return
+            }
             upload(chunk, http: http, attempt: 0, refreshed: false)
         } catch { finish(.failure(error)) }
     }
@@ -87,14 +115,15 @@ final class Syncer {
             fail(TrackingError("HTTP_ERROR", "Stored authorization is unavailable; set http.authorization again"), http: http, status: 401, retryAfter: nil)
             return
         }
-        guard UploadBackoff.authKey(http) == UploadBackoff.authKey(config.value.object("http")) else { finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained"))); automatic(); return }
+        guard UploadBackoff.authKey(http) == UploadBackoff.authKey(config.value.object("http")) else { credentialsChanged(); return }
         let auth = explicitAuthorization ? [:] : http.object("authorization")
         if !auth.isEmpty && !auth.text("refreshUrl").isEmpty && !refreshed && Self.needsRefresh(auth, now: Date().timeIntervalSince1970 * 1000, shortLivedToken: shortLivedToken) {
             refresh(http) { result in
                 guard self.generation == captured else { return }
                 switch result {
-                case .success(let fresh): self.upload(records, http: fresh, attempt: attempt, refreshed: true)
-                case .failure(let error):
+                case .renewed(let fresh): self.upload(records, http: fresh, attempt: attempt, refreshed: true)
+                case .changed: self.credentialsChanged()
+                case .failed(let error):
                     if !auth.text("accessToken").isEmpty { self.upload(records, http: http, attempt: attempt, refreshed: true) }
                     else { self.fail(error, http: http, status: 401, retryAfter: nil) }
                 }
@@ -121,14 +150,15 @@ final class Syncer {
                         return
                     }
                     if UploadBackoff.authKey(http) != UploadBackoff.authKey(self.config.value.object("http")) {
-                        self.finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained"))); self.automatic(); return
+                        self.credentialsChanged(); return
                     }
                     if status == 401 && !refreshed && !auth.isEmpty {
                         self.refresh(http) { renewal in
                             guard self.generation == captured else { return }
                             switch renewal {
-                            case .success(let fresh): self.upload(records, http: fresh, attempt: attempt, refreshed: true)
-                            case .failure(let error): self.fail(error, http: http, status: 401, retryAfter: nil)
+                            case .renewed(let fresh): self.upload(records, http: fresh, attempt: attempt, refreshed: true)
+                            case .changed: self.credentialsChanged()
+                            case .failed(let error): self.fail(error, http: http, status: 401, retryAfter: nil)
                             }
                         }
                         return
@@ -145,14 +175,14 @@ final class Syncer {
                             return
                         }
                     }
-                    self.fail(TrackingError(status == 0 ? "NETWORK_ERROR" : "HTTP_ERROR", status == 0 ? "Network request failed" : "Upload failed: HTTP \(status)"), http: http, status: status, retryAfter: retryAfter, authorizationFailure: status == 401 && !auth.isEmpty)
+                    self.reject(records, error: TrackingError(status == 0 ? "NETWORK_ERROR" : "HTTP_ERROR", status == 0 ? "Network request failed" : "Upload failed: HTTP \(status)"), http: http, status: status, retryAfter: retryAfter)
                 }
             }
         } catch { finish(.failure(error)) }
     }
-    private func refresh(_ http: TrackingJSON, completion: @escaping (Result<TrackingJSON, Error>) -> Void) {
+    private func refresh(_ http: TrackingJSON, completion: @escaping (Renewal) -> Void) {
         let auth = http.object("authorization")
-        guard let url = URL(string: auth.text("refreshUrl")), ["http", "https"].contains(url.scheme ?? "") else { completion(.failure(TrackingError("HTTP_ERROR", "Token refresh is not configured"))); return }
+        guard let url = URL(string: auth.text("refreshUrl")), ["http", "https"].contains(url.scheme ?? "") else { emit("authorization", ["success": false, "status": 0, "error": "Token refresh is not configured"]); completion(.failed(TrackingError("HTTP_ERROR", "Token refresh is not configured"))); return }
         var payload = auth.object("refreshPayload")
         for (key, value) in payload { if let text = value as? String { payload[key] = text.replacingOccurrences(of: "{refreshToken}", with: auth.text("refreshToken")) } }
         do {
@@ -165,13 +195,16 @@ final class Syncer {
                 headers["Content-Type"] = "application/x-www-form-urlencoded"
             } else { body = try jsonData(payload) }
             let captured = generation
-            transport.send(url: url, method: "POST", headers: headers, body: body, timeout: http.number("timeout", 60000)) { result in
+            transport.send(url: url, method: "POST", headers: headers, body: body, timeout: http.number("timeout", 60000), responseLimit: nil) { result in
                 self.queue.async {
                     guard captured == self.generation else { return }
+                    guard UploadBackoff.authKey(http) == UploadBackoff.authKey(self.config.value.object("http")) else { completion(.changed); return }
+                    let response = try? result.get()
+                    let json = response.flatMap { try? jsonObject($0.body) }
+                    var event: TrackingJSON = ["success": false, "status": response?.status ?? 0]
+                    if let json { event["response"] = json }
                     do {
-                        guard UploadBackoff.authKey(http) == UploadBackoff.authKey(self.config.value.object("http")) else { throw TrackingError("HTTP_ERROR", "Authorization changed during refresh") }
-                        let response = try result.get()
-                        let json = try jsonObject(response.body)
+                        guard let response, let json else { throw TrackingError("HTTP_ERROR", "Token refresh failed") }
                         let access = json.text("accessToken", json.text("access_token"))
                         guard response.success, !access.isEmpty else { throw TrackingError("HTTP_ERROR", "Token refresh failed") }
                         var next = auth
@@ -183,15 +216,40 @@ final class Syncer {
                         next["expires"] = expires
                         try self.config.apply(["http": ["authorization": next]], reset: false)
                         if expires > 0 && expires - Date().timeIntervalSince1970 * 1000 <= 60000 { self.shortLivedToken = access }
-                        self.emit("authorization", ["success": true, "status": response.status])
-                        completion(.success(self.config.value.object("http")))
+                        event["success"] = true
+                        self.emit("authorization", event)
+                        completion(.renewed(self.config.value.object("http")))
                     } catch {
-                        self.emit("authorization", ["success": false, "error": "Token refresh failed"])
-                        completion(.failure(error))
+                        event["error"] = "Token refresh failed"
+                        self.emit("authorization", event)
+                        completion(.failed(error))
                     }
                 }
             }
-        } catch { completion(.failure(error)) }
+        } catch {
+            emit("authorization", ["success": false, "status": 0, "error": "Token refresh failed"])
+            completion(.failed(error))
+        }
+    }
+    private func credentialsChanged() {
+        retryTimer?.cancel()
+        let current = config.value.object("http")
+        let hasReplacement = current["authorization"] is TrackingJSON || current.object("headers").keys.contains { $0.lowercased() == "authorization" }
+        if hasReplacement {
+            changedUntil = Date().addingTimeInterval(10)
+            schedule(changedUntil!.timeIntervalSince1970 * 1000)
+        }
+        pendingAutomatic = false
+        finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained")))
+    }
+    private func reject(_ records: [TrackingJSON], error: Error, http: TrackingJSON, status: Int, retryAfter: Double?) {
+        let usesJWT = !http.object("headers").keys.contains { $0.lowercased() == "authorization" } && !http.object("authorization").isEmpty
+        if status > 0 && !(status == 401 && usesJWT) && (!priorityOnly || passFailure != nil) {
+            if passFailure == nil { passFailure = (error, http, status, retryAfter) }
+            if records.allSatisfy({ priority.contains($0.text("event")) }) { rejectedPriority.formUnion(records.map { $0.text("uuid") }) }
+            priorityOnly = true
+            next()
+        } else { fail(error, http: http, status: status, retryAfter: retryAfter, authorizationFailure: status == 401 && usesJWT) }
     }
     private func fail(_ error: Error, http: TrackingJSON, status: Int, retryAfter: Double?, authorizationFailure: Bool? = nil) {
         let authFailure = authorizationFailure ?? (status == 401)
@@ -213,6 +271,13 @@ final class Syncer {
         busy = false
         let waiting = callbacks; callbacks = []
         waiting.forEach { $0(result) }
-        if case .success = result { queue.async { [weak self] in self?.automatic() } }
+        if pendingRecovery {
+            if let wait = try? store.load("uploadWait"), wait.text("reason") == "server" { try? store.save("uploadWait", [:]); failures = 0 }
+            pendingRecovery = false
+        }
+        let requested = pendingAutomatic
+        pendingAutomatic = false
+        if requested { queue.async { [weak self] in self?.automatic() } }
+        else if case .success = result { queue.async { [weak self] in self?.automatic() } }
     }
 }
