@@ -151,6 +151,16 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(response.number("status"), 200)
         syncer.transport.close()
     }
+    func testBackgroundPassHonorsAutomaticSyncDisabled() async throws {
+        try await prepare(["autoSync": false])
+        let result: Result<[TrackingJSON], Error> = await withCheckedContinuation { continuation in
+            syncer.automatic { continuation.resume(returning: $0) }
+        }
+        XCTAssertEqual(try result.get().count, 0)
+        XCTAssertEqual(try store.count, 1)
+        XCTAssertTrue(events.isEmpty)
+        syncer.transport.close()
+    }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
         _ = try await control("__faults", ["path": "/locations", "delayMs": 2000, "count": -1])

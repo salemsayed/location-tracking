@@ -28,23 +28,27 @@ final class Syncer {
         transport.cancel()
         if busy { finish(.failure(TrackingError("NETWORK_ERROR", "Upload cancelled"))) }
     }
-    func automatic() {
-        guard !busy, connected, let records = try? store.locations(), !records.isEmpty else { return }
+    func automatic(completion: ((Result<[TrackingJSON], Error>) -> Void)? = nil) {
+        if busy {
+            if let completion { callbacks.append(completion) }
+            return
+        }
+        guard connected, let records = try? store.locations(), !records.isEmpty else { completion?(.success([])); return }
         let http = config.value.object("http")
-        guard !http.text("url").isEmpty else { return }
+        guard !http.text("url").isEmpty else { completion?(.success([])); return }
         let hasPriority = records.contains { priority.contains($0.text("event")) }
-        if hasPriority { run(priorityOnly: cellular && http.flag("disableAutoSyncOnCellular"), completion: { _ in }); return }
-        guard http.flag("autoSync", true), !(cellular && http.flag("disableAutoSyncOnCellular")) else { return }
+        if hasPriority { run(priorityOnly: cellular && http.flag("disableAutoSyncOnCellular"), completion: completion ?? { _ in }); return }
+        guard http.flag("autoSync", true), !(cellular && http.flag("disableAutoSyncOnCellular")) else { completion?(.success([])); return }
         if let wait = try? store.load("uploadWait"), wait.number("at") > Date().timeIntervalSince1970 * 1000,
-           wait.text("reason") != "authorization" || wait.text("authKey") == UploadBackoff.authKey(http) { schedule(wait.number("at")); return }
+           wait.text("reason") != "authorization" || wait.text("authKey") == UploadBackoff.authKey(http) { schedule(wait.number("at")); completion?(.success([])); return }
         let interval = tracking ? http.number("syncInterval") : 0
         let threshold = http.number("autoSyncThreshold")
         if interval > 0, let oldest = records.first {
             let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let age = Date().timeIntervalSince(formatter.date(from: oldest.text("recorded_at")) ?? .distantPast)
-            if age >= 0 && age < interval && !(threshold > 0 && Double(records.count) >= threshold) { schedule(Date().timeIntervalSince1970 * 1000 + (interval - age) * 1000); return }
-        } else if Double(records.count) < max(1, threshold) { return }
-        run(completion: { _ in })
+            if age >= 0 && age < interval && !(threshold > 0 && Double(records.count) >= threshold) { schedule(Date().timeIntervalSince1970 * 1000 + (interval - age) * 1000); completion?(.success([])); return }
+        } else if Double(records.count) < max(1, threshold) { completion?(.success([])); return }
+        run(completion: completion ?? { _ in })
     }
     func run(priorityOnly: Bool = false, completion: @escaping (Result<[TrackingJSON], Error>) -> Void) {
         guard !config.value.object("http").text("url").isEmpty else { completion(.failure(TrackingError("NO_URL", "No http.url configured"))); return }

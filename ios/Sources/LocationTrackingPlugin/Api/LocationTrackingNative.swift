@@ -42,7 +42,7 @@ public enum LocationTrackingNative {
                 BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshIdentifier, using: queue) { task in
                     guard case .success(let core) = result else { task.setTaskCompleted(success: false); return }
                     task.expirationHandler = { queue.async { core.syncer.cancel() } }
-                    core.syncer.run { outcome in
+                    core.syncer.automatic { outcome in
                         task.setTaskCompleted(success: (try? outcome.get()) != nil)
                         scheduleRefresh()
                     }
