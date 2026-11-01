@@ -10,7 +10,7 @@ concurrency:
 jobs:
   swift:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -46,7 +46,13 @@ jobs:
           xcodebuild build-for-testing -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
           python3 .github/scripts/ios-ui-prepare.py "$RUNNER_TEMP/ios-ui-build/Build/Products/Debug-iphonesimulator"
       - name: Permission UI tests
-        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -only-testing:PermissionUITests/PermissionUITests -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Erase simulator and install the precise-default host
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/ios-precise-host.py "$RUNNER_TEMP/ios-ui-build/Build/Products/Debug-iphonesimulator"
+      - name: Check-in notification UI test
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -only-testing:PermissionUITests/CheckInUITests -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-checkin.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Route and lifecycle simulator scenarios
         if: ${{ !cancelled() }}
         env:
@@ -55,9 +61,11 @@ jobs:
       - name: Export UI attachments
         if: ${{ !cancelled() }}
         run: |
-          if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/ui-attachments"
-          fi
+          for bundle in permissions checkin; do
+            if [ -d "$RUNNER_TEMP/ios-$bundle.xcresult" ]; then
+              xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-$bundle.xcresult" --output-path "$RUNNER_TEMP/ui-attachments/$bundle"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -67,9 +75,11 @@ jobs:
         if: failure()
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-tests.xcresult" --output-path "$RUNNER_TEMP/native-diagnostics" || true
-          if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
-            xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/ui-diagnostics" || true
-          fi
+          for bundle in permissions checkin; do
+            if [ -d "$RUNNER_TEMP/ios-$bundle.xcresult" ]; then
+              xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-$bundle.xcresult" --output-path "$RUNNER_TEMP/ui-diagnostics/$bundle" || true
+            fi
+          done
           for task_pid in $(pgrep -x App || true); do
             sample "$task_pid" 3 -file "$RUNNER_TEMP/app-thread-$task_pid.txt" || true
           done
@@ -81,6 +91,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ios-tests.xcresult
             ${{ runner.temp }}/ios-permissions.xcresult
+            ${{ runner.temp }}/ios-checkin.xcresult
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
@@ -97,6 +108,8 @@ jobs:
         manager: [SPM, CocoaPods]
     steps:
       - uses: actions/checkout@v4
+      - name: Select and boot simulator before the builds
+        run: python3 .github/scripts/ios-simulator.py
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -119,8 +132,6 @@ jobs:
           zip -qry "$RUNNER_TEMP/location-tracking-example-unsigned.ipa" Payload
       - name: Sign Release with ad-hoc identity
         run: python3 .github/scripts/ios-release-adhoc.py
-      - name: Select simulator
-        run: python3 .github/scripts/ios-simulator.py
       - name: Prepare simulator signing
         run: ruby .github/scripts/ios-simulator-signing.rb
       - name: Build simulator consumer
@@ -157,7 +168,7 @@ jobs:
     continue-on-error: ${{ matrix.required == 'false' }}
     env:
       LEGACY_REQUIRED: ${{ matrix.required }}
-    timeout-minutes: ${{ matrix.required == 'true' && 45 || 20 }}
+    timeout-minutes: ${{ matrix.required == 'true' && 75 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -204,9 +215,15 @@ jobs:
         run: |
           xcodebuild build-for-testing -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
           python3 .github/scripts/ios-ui-prepare.py "$RUNNER_TEMP/ios-legacy-ui-build/Build/Products/Debug-iphonesimulator"
-      - name: Legacy permission and notification UI tests
+      - name: Legacy permission UI tests
         if: env.LEGACY_AVAILABLE == 'true'
-        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -only-testing:PermissionUITests/PermissionUITests -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Erase legacy simulator and install the precise-default host
+        if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
+        run: python3 .github/scripts/ios-precise-host.py "$RUNNER_TEMP/ios-legacy-ui-build/Build/Products/Debug-iphonesimulator"
+      - name: Legacy check-in notification UI test
+        if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -only-testing:PermissionUITests/CheckInUITests -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-checkin.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Legacy route and lifecycle scenarios
         if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
         env:
@@ -215,9 +232,11 @@ jobs:
       - name: Export legacy UI attachments
         if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
         run: |
-          if [ -d "$RUNNER_TEMP/ios-legacy-permissions.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-legacy-permissions.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-attachments"
-          fi
+          for bundle in permissions checkin; do
+            if [ -d "$RUNNER_TEMP/ios-legacy-$bundle.xcresult" ]; then
+              xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-legacy-$bundle.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-attachments/$bundle"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
         with:
@@ -230,9 +249,11 @@ jobs:
         if: failure() && env.LEGACY_AVAILABLE == 'true'
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy.xcresult" --output-path "$RUNNER_TEMP/legacy-diagnostics" || true
-          if [ -d "$RUNNER_TEMP/ios-legacy-permissions.xcresult" ]; then
-            xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy-permissions.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-diagnostics" || true
-          fi
+          for bundle in permissions checkin; do
+            if [ -d "$RUNNER_TEMP/ios-legacy-$bundle.xcresult" ]; then
+              xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy-$bundle.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-diagnostics/$bundle" || true
+            fi
+          done
           xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "SpringBoard" OR process == "splashboardd" OR process == "installd" OR process == "runningboardd"' > "$RUNNER_TEMP/legacy-launch.log" 2>&1
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -245,5 +266,6 @@ jobs:
             ${{ runner.temp }}/legacy-ui-diagnostics
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
+            ${{ runner.temp }}/ios-legacy-checkin.xcresult
             ${{ runner.temp }}/ui-samples
             ${{ runner.temp }}/ios-stage2

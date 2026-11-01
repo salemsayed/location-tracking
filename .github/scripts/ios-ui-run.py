@@ -6,7 +6,7 @@ import time
 
 directory = pathlib.Path(os.environ['RUNNER_TEMP'], 'ui-samples')
 directory.mkdir(exist_ok=True)
-log = (directory / 'simulator.log').open('w')
+log = (directory / 'simulator.log').open('a')
 logger = None
 if os.environ.get('IOS_SIMULATOR'):
     logger = subprocess.Popen(['xcrun', 'simctl', 'spawn', os.environ['IOS_SIMULATOR'], 'log', 'stream', '--style', 'compact', '--level', 'info', '--predicate', 'process == "App" OR process == "SpringBoard" OR process == "usernotificationsd" OR process == "runningboardd" OR process == "PermissionUITests-Runner" OR process == "splashboardd"'], stdout=log, stderr=subprocess.STDOUT)

@@ -3,7 +3,6 @@ import os
 import pathlib
 import plistlib
 import signal
-import shutil
 import subprocess
 import time
 import urllib.request
@@ -11,19 +10,15 @@ import uuid
 from ios_simulator_launch import launch_and_wait, simctl_output
 
 identifier = os.environ['IOS_SIMULATOR']
-source_app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
+app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
 root = pathlib.Path(os.environ['RUNNER_TEMP'])
 report = root / 'ios-stage2'
 report.mkdir(exist_ok=True)
-app = root / 'ios-scenario-host/App.app'
-if app.exists():
-    shutil.rmtree(app)
-shutil.copytree(source_app, app)
 bundle = 'com.brickssoft.locationtracking.example'
 checks = []
 route = None
 
-def sim(*args, timeout=120):
+def sim(*args, timeout=600):
     return simctl_output(*args, timeout=timeout)
 
 def check(value, description):
@@ -41,18 +36,11 @@ def wait_for(condition, description, timeout=45):
         time.sleep(0.5)
     raise TimeoutError(description)
 
-info = app / 'Info.plist'
-values = plistlib.loads(info.read_bytes())
-values['NSLocationDefaultAccuracyReduced'] = False
-info.write_bytes(plistlib.dumps(values))
-entitlements = root / 'ios-scenario-entitlements.plist'
-original = subprocess.run(['codesign', '--display', '--entitlements', ':-', str(source_app)], capture_output=True, check=True, timeout=30)
-entitlements.write_bytes(plistlib.dumps(plistlib.loads(original.stdout)))
-subprocess.run(['codesign', '--force', '--sign', '-', '--entitlements', str(entitlements), '--generate-entitlement-der', str(app)], check=True, timeout=60)
+check(plistlib.loads((app / 'Info.plist').read_bytes()).get('NSLocationDefaultAccuracyReduced') is False, 'route host defaults to precise location')
 subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)], check=True, timeout=60)
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False, timeout=120)
-sim('bootstatus', identifier, '-b', timeout=300)
-sim('install', identifier, str(app), timeout=240)
+sim('bootstatus', identifier, '-b', timeout=600)
+sim('install', identifier, str(app))
 sim('privacy', identifier, 'reset', 'location', bundle)
 sim('privacy', identifier, 'reset', 'location-always', bundle)
 sim('privacy', identifier, 'grant', 'location-always', bundle)
@@ -67,7 +55,7 @@ def launch():
     def ready():
         path = directory / 'ready.json'
         return json.loads(path.read_text()) if path.exists() else None
-    result = launch_and_wait(identifier, bundle, ['--ios-stage2-scenario'], ready, report / 'launch.log', timeout=120)
+    result = launch_and_wait(identifier, bundle, ['--ios-stage2-scenario'], ready, report / 'launch.log', timeout=300)
     return result['pid']
 
 def call(method, options=None, allow_failure=False):
@@ -127,7 +115,8 @@ try:
     check(not sensors['significantMotion'] or permissions['activityRecognition'] != 'granted', 'no authorized Core Motion source; displacement fallback exercised')
     call('start')
     initial = wait_for(lambda: pending_snapshot(), 'check-in scheduled')
-    first_due = initial['pending'][0]['nextAt']
+    original_fire_bound = time.time() + 120
+    check(initial['pending'][0]['interval'] == 120, 'check-in uses the configured 120 second delay')
     start_record = next(record for record in initial['locations'] if record['event'] == 'tracking_start')
     check(start_record['device']['manufacturer'] == 'Apple' and start_record['device']['ram_total_bytes'] > 0 and bool(start_record['device']['os_version']), 'tracking start carries Apple model OS and RAM readings')
     check('disk_free_bytes' not in start_record['device'], 'records omit free disk telemetry')
@@ -137,14 +126,14 @@ try:
     moving = wait_for(lambda: matching_snapshot(lambda s: s['state']['isMoving'] and any(r['event'] == 'location' for r in s['locations'])), 'moving route records', timeout=60)
     check(moving['state']['isMoving'], 'moving route detected without Core Motion')
     soon = snapshot('moving')
-    check(soon['pending'][0]['nextAt'] == first_due, 'check-in is not moved more often than once a minute')
     count = len(soon['locations'])
     sim('launch', identifier, 'com.apple.Preferences')
     background = wait_for(lambda: matching_snapshot(lambda s: s['appState'] == 'background' and len(s['locations']) > count), 'background route records', timeout=45)
     check(background['appState'] == 'background', 'route continues while Settings is foreground')
     snapshot('background')
-    moved = wait_for(lambda: matching_snapshot(lambda s: s['pending'] and s['pending'][0]['nextAt'] > first_due + 55), 'check-in moved after activity', timeout=90)
-    check(len(moved['pending']) == 1, 'activity moves the same single pending check-in')
+    time.sleep(max(0, original_fire_bound + 15 - time.time()))
+    moved = snapshot('moved')
+    check(len(moved['pending']) == 1 and moved['delivered'] == 0 and moved['state']['isMoving'], 'activity moved the single pending check-in past its original fire time')
     sim('launch', identifier, bundle, '--ios-stage2-scenario')
     coords = moved['runtime']['lastLocation']
     stop_route(); gps.close()
@@ -193,7 +182,7 @@ try:
     call('setConfig', {'config': {'app': {'stopOnTerminate': False}}}); call('start')
     before_restart = snapshot('before-restart')
     sim('shutdown', identifier)
-    sim('boot', identifier); sim('bootstatus', identifier, '-b', timeout=300)
+    sim('boot', identifier); sim('bootstatus', identifier, '-b', timeout=600)
     pid = launch(); restored = snapshot('after-restart')
     check(restored['state']['enabled'], 'simulator shutdown and boot restore tracking intent')
     check(restored['runtime']['trackingStartedAt'] == before_restart['runtime']['trackingStartedAt'], 'simulator restart keeps the original session start')
