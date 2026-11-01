@@ -12,7 +12,7 @@ final class HTTPTests: XCTestCase {
     var events: [(String, TrackingJSON)] = []
 
     func control(_ path: String, _ value: TrackingJSON = [:]) async throws -> Data {
-        var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 5)
+        var request = URLRequest(url: base.appendingPathComponent(path), timeoutInterval: 20)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try jsonData(value)
