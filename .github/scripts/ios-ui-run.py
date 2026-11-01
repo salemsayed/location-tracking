@@ -28,7 +28,7 @@ try:
             if pid not in sampled and time.monotonic() - first > 20:
                 sampled.add(pid)
                 try:
-                    subprocess.run(['sample', pid, '2', '-file', str(directory / (pid + '.txt'))], check=False, timeout=20)
+                    subprocess.run(['sample', pid, '1', '10', '-file', str(directory / (pid + '.txt'))], check=False, timeout=60)
                 except subprocess.SubprocessError:
                     print('UI stack sampling did not finish for ' + pid, flush=True)
         time.sleep(2)
