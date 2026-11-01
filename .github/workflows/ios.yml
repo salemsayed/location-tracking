@@ -53,13 +53,15 @@ jobs:
           if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/ui-attachments"
           fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-ui-evidence
+          path: ${{ runner.temp }}/ui-attachments
       - name: Native launch diagnostics
         if: failure()
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-tests.xcresult" --output-path "$RUNNER_TEMP/native-diagnostics" || true
-          if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/permission-attachments"
-          fi
           xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -71,8 +73,6 @@ jobs:
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
-            ${{ runner.temp }}/permission-attachments
-            ${{ runner.temp }}/ui-attachments
             ${{ runner.temp }}/ios-stage2
   package:
     runs-on: macos-26
@@ -199,6 +199,11 @@ jobs:
           if [ -d "$RUNNER_TEMP/ios-legacy-permissions.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-legacy-permissions.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-attachments"
           fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
+        with:
+          name: ios-legacy-ui-evidence-${{ matrix.runner }}
+          path: ${{ runner.temp }}/legacy-ui-attachments
       - name: Verify required legacy coverage
         if: matrix.required == 'true'
         run: test "$LEGACY_AVAILABLE" = true && test -d "$RUNNER_TEMP/ios-legacy.xcresult"
@@ -217,5 +222,4 @@ jobs:
             ${{ runner.temp }}/legacy-diagnostics
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
-            ${{ runner.temp }}/legacy-ui-attachments
             ${{ runner.temp }}/ios-stage2

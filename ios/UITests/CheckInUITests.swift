@@ -2,17 +2,26 @@ import XCTest
 import CoreLocation
 
 final class CheckInUITests: XCTestCase {
+    override func tearDown() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ios-stage2-scenario"]
+        app.launch()
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if alert.exists { alert.buttons.firstMatch.tap() }
+        if app.buttons["Stop tracking"].waitForExistence(timeout: 15) {
+            app.buttons["Stop tracking"].tap()
+            _ = app.staticTexts["Harness cleared"].waitForExistence(timeout: 15)
+        }
+        app.terminate()
+        if #available(iOS 16.4, *) { XCUIDevice.shared.location = nil }
+        super.tearDown()
+    }
     func testNotificationFiresAfterKillAndTapRestoresOriginalSessionDeadline() {
         continueAfterFailure = false
         if #available(iOS 16.4, *) { XCUIDevice.shared.location = XCUILocation(location: CLLocation(latitude: 24.7136, longitude: 46.6753)) }
         let app = XCUIApplication()
         app.launchArguments = ["--ios-stage2-scenario"]
         app.launch(); app.terminate(); app.resetAuthorizationStatus(for: .location); app.launch()
-        defer {
-            if app.state == .runningForeground && app.buttons["Stop tracking"].exists { app.buttons["Stop tracking"].tap() }
-            app.terminate()
-            if #available(iOS 16.4, *) { XCUIDevice.shared.location = nil }
-        }
         XCTAssertTrue(app.buttons["Start check-in"].waitForExistence(timeout: 30))
         app.buttons["Start check-in"].tap()
         let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -37,7 +46,12 @@ final class CheckInUITests: XCTestCase {
         XCTAssertTrue(notification.waitForExistence(timeout: 160), system.debugDescription)
         let fired = XCTAttachment(screenshot: system.screenshot()); fired.name = "check-in-after-kill"; fired.lifetime = .keepAlways; add(fired)
         notification.tap()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 30))
+        if !app.wait(for: .runningForeground, timeout: 3) && notification.exists { notification.tap() }
+        let opened = app.wait(for: .runningForeground, timeout: 30)
+        if !opened {
+            let screen = XCTAttachment(screenshot: system.screenshot()); screen.name = "check-in-tap-state"; screen.lifetime = .keepAlways; add(screen)
+        }
+        XCTAssertTrue(opened)
         XCTAssertTrue(app.staticTexts["Last start reason: restore"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts[start].exists)
         XCTAssertTrue(app.staticTexts["Delivered: 0"].waitForExistence(timeout: 10))

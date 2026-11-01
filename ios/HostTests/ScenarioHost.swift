@@ -79,14 +79,15 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
 }
 
 final class ScenarioViewController: UIViewController {
-    private let status = UILabel(), start = UILabel(), reason = UILabel(), pending = UILabel(), delivered = UILabel()
+    private let status = UILabel(), start = UILabel(), reason = UILabel(), pending = UILabel(), delivered = UILabel(), harness = UILabel()
     private var timer: Timer?
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         let begin = UIButton(type: .system); begin.setTitle("Start check-in", for: .normal); begin.addTarget(self, action: #selector(beginCheckIn), for: .touchUpInside)
         let stop = UIButton(type: .system); stop.setTitle("Stop tracking", for: .normal); stop.addTarget(self, action: #selector(stopTracking), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [begin, stop, status, start, reason, pending, delivered])
+        harness.text = "Harness active"
+        let stack = UIStackView(arrangedSubviews: [begin, stop, status, start, reason, pending, delivered, harness])
         stack.axis = .vertical; stack.spacing = 16; stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40)])
@@ -113,7 +114,7 @@ final class ScenarioViewController: UIViewController {
         }
     }
     @objc private func stopTracking() {
-        ScenarioHost.current?.invoke("stop") { _ in UserDefaults.standard.removeObject(forKey: "LT.scenario"); ScenarioHost.current?.snapshot { _ in } }
+        ScenarioHost.current?.invoke("stop") { [weak self] _ in UserDefaults.standard.removeObject(forKey: "LT.scenario"); self?.harness.text = "Harness cleared"; ScenarioHost.current?.snapshot { _ in } }
     }
     deinit { timer?.invalidate() }
 }
