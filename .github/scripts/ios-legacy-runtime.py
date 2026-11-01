@@ -24,6 +24,10 @@ def available(version):
     return [r for r in data['runtimes'] if r.get('isAvailable') and r['version'].startswith(version)]
 
 def boot(runtime):
+    if run(['xcrun', 'simctl', 'runtime', 'dyld_shared_cache', 'update', runtime['identifier']], timeout=1500) != 0:
+        with report.open('a') as output:
+            output.write('dyld shared cache unavailable for ' + runtime['version'] + '\n')
+        return None
     device = 'iPhone-13' if runtime['version'].startswith('15.') else 'iPhone-14'
     command = ['xcrun', 'simctl', 'create', 'LT Legacy', 'com.apple.CoreSimulator.SimDeviceType.' + device, runtime['identifier']]
     try:

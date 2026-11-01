@@ -10,6 +10,10 @@ if not runtimes:
     raise RuntimeError('No available iPhone simulator')
 runtime = max(runtimes, key=lambda name: tuple(int(part) for part in re.findall(r'\d+', name)))
 phones = [device for device in runtimes[runtime] if 'iPhone' in device['name']]
+try:
+    subprocess.run(['xcrun', 'simctl', 'runtime', 'dyld_shared_cache', 'update', runtime], check=False, timeout=1500)
+except subprocess.TimeoutExpired:
+    print('dyld shared cache update did not finish; continuing with the existing runtime state')
 preferred = next((device for device in phones if device['state'] == 'Booted'), phones[0])
 identifier = preferred['udid']
 try:
