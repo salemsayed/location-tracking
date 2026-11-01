@@ -4,9 +4,11 @@ final class PermissionUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     func launch() -> XCUIApplication {
         let app = XCUIApplication()
+        app.launchArguments = ["--ios-permission-smoke"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Request Location"].waitForExistence(timeout: 30))
         app.terminate()
         app.resetAuthorizationStatus(for: .location)
-        app.launchArguments = ["--ios-permission-smoke"]
         app.launch()
         XCTAssertTrue(app.buttons["Request Location"].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Location permission: prompt"].exists)
@@ -16,6 +18,7 @@ final class PermissionUITests: XCTestCase {
         let app = launch()
         app.buttons["Request Location"].tap()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if !alert.waitForExistence(timeout: 5) && !app.staticTexts["Location request started"].exists { app.buttons["Request Location"].tap() }
         XCTAssertTrue(alert.waitForExistence(timeout: 15))
         let deny = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'allow' AND label CONTAINS[c] 't '")).firstMatch
         XCTAssertTrue(deny.exists)
@@ -28,6 +31,7 @@ final class PermissionUITests: XCTestCase {
         let app = launch()
         app.buttons["Request Location"].tap()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if !alert.waitForExistence(timeout: 5) && !app.staticTexts["Location request started"].exists { app.buttons["Request Location"].tap() }
         XCTAssertTrue(alert.waitForExistence(timeout: 15))
         let predicate = NSPredicate(format: "label CONTAINS[c] 'precise'")
         let button = alert.buttons.matching(predicate).firstMatch

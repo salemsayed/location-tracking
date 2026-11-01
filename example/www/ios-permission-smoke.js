@@ -17,10 +17,12 @@
   };
   await refresh();
   button('Request Location', async () => {
+    result.textContent = 'Location request started';
     await plugin.requestPermissions({ permissions: ['location'] });
     await refresh();
   });
   button('Request Precision', async () => {
+    result.textContent = 'Precision request started';
     await plugin.requestTemporaryFullAccuracy({ purposeKey: 'Tracking' });
     await refresh();
   });
