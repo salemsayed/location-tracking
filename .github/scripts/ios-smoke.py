@@ -10,7 +10,7 @@ app = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-simulator/Build/Products/De
 bundle = 'com.brickssoft.locationtracking.example'
 
 def sim(*args):
-    return subprocess.check_output(['xcrun', 'simctl', *args], text=True).strip()
+    return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=30).strip()
 
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, timeout=240)
@@ -45,4 +45,11 @@ try:
         raise RuntimeError('Timed out waiting for WebView smoke report')
 finally:
     finished.set()
+    state = container / 'Library/Application Support/ios-stage1-state.json'
+    if state.exists():
+        pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-state.json').write_bytes(state.read_bytes())
+        print(state.read_text())
+    subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=30)
+    with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
+        subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=30)
     sim('location', identifier, 'clear')

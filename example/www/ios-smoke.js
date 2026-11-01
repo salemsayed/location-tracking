@@ -1,10 +1,11 @@
 (async function () {
   const results = [];
-  const plugin = window.capacitorLocationTracking.LocationTracking;
+  let plugin;
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const assert = (value, name) => {
     if (!value) throw new Error(name);
     results.push(name);
+    window.webkit.messageHandlers.stage1.postMessage({ phase: name, checks: results });
   };
   const rejects = async (name, code, args) => {
     try {
@@ -16,6 +17,7 @@
     throw new Error(name + ' unexpectedly resolved');
   };
   try {
+    plugin = window.capacitorLocationTracking.LocationTracking;
     await rejects('getCount', 'NOT_READY');
     assert((await plugin.getState()).backend === 'corelocation', 'state before ready');
     assert((await plugin.getProviderState()).permission !== 'denied', 'simulator location permission');

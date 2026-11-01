@@ -83,7 +83,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: ios-bridge-${{ matrix.manager }}
-          path: ${{ runner.temp }}/ios-smoke.json
+          path: ${{ runner.temp }}/ios-smoke*
       - uses: actions/upload-artifact@v4
         with:
           name: ios-example-unsigned-${{ matrix.manager }}

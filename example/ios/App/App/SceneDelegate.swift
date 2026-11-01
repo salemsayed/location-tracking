@@ -26,21 +26,21 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 
 final class ExampleViewController: CAPBridgeViewController, WKScriptMessageHandler {
-    override func webViewConfiguration(for instanceConfiguration: InstanceConfiguration) -> WKWebViewConfiguration {
-        let configuration = super.webViewConfiguration(for: instanceConfiguration)
+    override func capacitorDidLoad() {
+        super.capacitorDidLoad()
+        guard let configuration = webView?.configuration else { return }
         if ProcessInfo.processInfo.arguments.contains("--ios-stage1-smoke") {
             configuration.userContentController.add(self, name: "stage1")
-            configuration.userContentController.addUserScript(WKUserScript(source: "localStorage.setItem('lt.e2e', '1');", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            configuration.userContentController.addUserScript(WKUserScript(source: "var s = document.createElement('script'); s.src = 'ios-smoke.js'; document.body.appendChild(s);", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+            configuration.userContentController.addUserScript(WKUserScript(source: "window.addEventListener('error', function(e) { window.webkit.messageHandlers.stage1.postMessage({success:false,error:String(e.message)}); }); localStorage.setItem('lt.e2e', '1'); window.webkit.messageHandlers.stage1.postMessage({phase:'document-start'});", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            configuration.userContentController.addUserScript(WKUserScript(source: "var s = document.createElement('script'); s.src = 'ios-smoke.js'; s.onerror = function() { window.webkit.messageHandlers.stage1.postMessage({success:false,error:'Could not load ios-smoke.js'}); }; document.body.appendChild(s);", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         }
-        return configuration
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "stage1", let body = message.body as? [String: Any] else { return }
         do {
             let directory = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let data = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
-            try data.write(to: directory.appendingPathComponent("ios-stage1-smoke.json"), options: .atomic)
+            try data.write(to: directory.appendingPathComponent(body["success"] == nil ? "ios-stage1-state.json" : "ios-stage1-smoke.json"), options: .atomic)
         } catch { assertionFailure("Could not save simulator smoke results") }
     }
 }
