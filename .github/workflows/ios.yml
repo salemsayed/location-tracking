@@ -62,6 +62,12 @@ jobs:
         if: failure()
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-tests.xcresult" --output-path "$RUNNER_TEMP/native-diagnostics" || true
+          if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
+            xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/ui-diagnostics" || true
+          fi
+          for task_pid in $(pgrep -x App || true); do
+            sample "$task_pid" 3 -file "$RUNNER_TEMP/app-thread-$task_pid.txt" || true
+          done
           xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
@@ -73,6 +79,8 @@ jobs:
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
+            ${{ runner.temp }}/ui-diagnostics
+            ${{ runner.temp }}/app-thread-*.txt
             ${{ runner.temp }}/ios-stage2
   package:
     runs-on: macos-26

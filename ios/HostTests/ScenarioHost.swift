@@ -7,7 +7,8 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
     static var current: ScenarioHost?
     static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--ios-stage2-scenario") || UserDefaults.standard.bool(forKey: "LT.scenario") }
     private var subscription: NativeSubscription?
-    private var timer: Timer?
+    private var timer: DispatchSourceTimer?
+    private let commandQueue = DispatchQueue(label: "Scenario.commands")
     private var busy = false
     private var lastCommand = ""
     private(set) var audit: [TrackingJSON] = []
@@ -20,12 +21,15 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         UserDefaults.standard.set(true, forKey: "LT.scenario")
         subscription = LocationTrackingNative.addListener(self)
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in self?.poll() }
+        let timer = DispatchSource.makeTimerSource(queue: commandQueue)
+        timer.setEventHandler { [weak self] in self?.poll() }
+        timer.schedule(deadline: .now(), repeating: .milliseconds(200))
+        self.timer = timer; timer.resume()
         write(["ready": true], "ready.json")
     }
     static func install() { if enabled && current == nil { current = ScenarioHost() } }
-    func onRecord(_ record: TrackingJSON) { DispatchQueue.main.async { self.audit.append(record) } }
-    func onEvent(_ name: String, payload: TrackingJSON) {}
+    func onRecord(_ record: TrackingJSON) { DispatchQueue.main.async { self.audit.append(record); self.snapshot { _ in } } }
+    func onEvent(_ name: String, payload: TrackingJSON) { if name == "enabledchange" { DispatchQueue.main.async { self.snapshot { _ in } } } }
     func invoke(_ method: String, _ options: TrackingJSON = [:], completion: @escaping (TrackingJSON) -> Void) {
         LocationTrackingNative.call(method, options: options) { result in
             DispatchQueue.main.async {
@@ -41,11 +45,13 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
         lastCommand = id; busy = true
         let finish: (TrackingJSON) -> Void = { value in
             var response = value; response["id"] = id
-            self.write(response, "response.json"); self.busy = false
+            self.commandQueue.async { self.write(response, "response.json"); self.busy = false }
         }
-        if method == "snapshot" { snapshot { finish(["success": true, "value": $0]) } }
-        else if method == "willTerminate" { NotificationCenter.default.post(name: UIApplication.willTerminateNotification, object: UIApplication.shared); invoke("getState", completion: finish) }
-        else { invoke(method, command["options"] as? TrackingJSON ?? [:], completion: finish) }
+        DispatchQueue.main.async {
+            if method == "snapshot" { self.snapshot { finish(["success": true, "value": $0]) } }
+            else if method == "willTerminate" { NotificationCenter.default.post(name: UIApplication.willTerminateNotification, object: UIApplication.shared); self.invoke("getState", completion: finish) }
+            else { self.invoke(method, command["options"] as? TrackingJSON ?? [:], completion: finish) }
+        }
     }
     func snapshot(_ completion: @escaping (TrackingJSON) -> Void) {
         invoke("getState") { state in
@@ -80,7 +86,6 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
 
 final class ScenarioViewController: UIViewController {
     private let status = UILabel(), start = UILabel(), reason = UILabel(), pending = UILabel(), delivered = UILabel(), harness = UILabel()
-    private var timer: Timer?
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
@@ -92,29 +97,36 @@ final class ScenarioViewController: UIViewController {
         view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40)])
         ScenarioHost.current?.changed = { [weak self] in self?.update() }
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in ScenarioHost.current?.snapshot { _ in } }
         ScenarioHost.current?.snapshot { _ in }
     }
     private func update() {
         guard let latest = ScenarioHost.current?.latest else { return }
         let state = latest["state"] as? TrackingJSON ?? [:], runtime = latest["runtime"] as? TrackingJSON ?? [:]
-        status.text = "State: \(state["enabled"] as? Bool == true ? "enabled" : "disabled")"
-        start.text = "Session start: \(Int64((runtime["trackingStartedAt"] as? Double) ?? 0))"
+        set(status, "State: \(state["enabled"] as? Bool == true ? "enabled" : "disabled")")
+        set(start, "Session start: \(Int64((runtime["trackingStartedAt"] as? Double) ?? 0))")
         let records = latest["locations"] as? [TrackingJSON] ?? []
-        reason.text = "Last start reason: \(records.last { $0["event"] as? String == "tracking_start" }?["reason"] as? String ?? "none")"
-        pending.text = "Check-in pending: \((latest["pending"] as? [TrackingJSON])?.isEmpty == false)"
-        delivered.text = "Delivered: \(latest["delivered"] as? Int ?? -1)"
+        set(reason, "Last start reason: \(records.last { $0["event"] as? String == "tracking_start" }?["reason"] as? String ?? "none")")
+        set(pending, "Check-in pending: \((latest["pending"] as? [TrackingJSON])?.isEmpty == false)")
+        set(delivered, "Delivered: \(latest["delivered"] as? Int ?? -1)")
+    }
+    private func set(_ label: UILabel, _ text: String) { if label.text != text { label.text = text } }
+    private func refreshPending(_ expected: Bool, until deadline: Date) {
+        ScenarioHost.current?.snapshot { value in
+            let scheduled = (value["pending"] as? [TrackingJSON])?.isEmpty == false
+            if scheduled != expected && Date() < deadline {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.refreshPending(expected, until: deadline) }
+            }
+        }
     }
     @objc private func beginCheckIn() {
         ScenarioHost.current?.invoke("requestPermissions", ["permissions": ["location", "notifications"]]) { permission in
             guard permission["success"] as? Bool == true else { return }
             ScenarioHost.current?.invoke("ready", ["config": ["http": ["autoSync": false], "geolocation": ["stopAfterElapsedMinutes": 10], "heartbeat": ["enabled": false, "minInterval": 60, "maxInterval": 60], "notification": ["resume": ["enabled": true, "delay": 120, "title": "Location tracking test check-in", "text": "Tap to resume the test route"]], "app": ["stopOnTerminate": false]]]) { _ in
-                ScenarioHost.current?.invoke("start") { _ in ScenarioHost.current?.snapshot { _ in } }
+                ScenarioHost.current?.invoke("start") { [weak self] _ in self?.refreshPending(true, until: Date().addingTimeInterval(15)) }
             }
         }
     }
     @objc private func stopTracking() {
-        ScenarioHost.current?.invoke("stop") { [weak self] _ in UserDefaults.standard.removeObject(forKey: "LT.scenario"); self?.harness.text = "Harness cleared"; ScenarioHost.current?.snapshot { _ in } }
+        ScenarioHost.current?.invoke("stop") { [weak self] _ in UserDefaults.standard.removeObject(forKey: "LT.scenario"); self?.harness.text = "Harness cleared"; self?.refreshPending(false, until: Date().addingTimeInterval(15)) }
     }
-    deinit { timer?.invalidate() }
 }

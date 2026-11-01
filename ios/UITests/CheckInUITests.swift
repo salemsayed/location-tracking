@@ -45,6 +45,11 @@ final class CheckInUITests: XCTestCase {
         let notification = system.staticTexts["Location tracking test check-in"].firstMatch
         XCTAssertTrue(notification.waitForExistence(timeout: 160), system.debugDescription)
         let fired = XCTAttachment(screenshot: system.screenshot()); fired.name = "check-in-after-kill"; fired.lifetime = .keepAlways; add(fired)
+        system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+        XCUIDevice.shared.press(.home)
+        system.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.01)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
+        XCTAssertTrue(notification.waitForExistence(timeout: 10))
+        XCTAssertEqual(app.state, .notRunning)
         notification.tap()
         if !app.wait(for: .runningForeground, timeout: 3) && notification.exists { notification.tap() }
         let opened = app.wait(for: .runningForeground, timeout: 30)
