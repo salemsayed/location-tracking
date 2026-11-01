@@ -64,7 +64,7 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin, Location
         DispatchQueue.main.async { [weak self] in self?.notifyListeners(name, data: payload) }
     }
     private func invoke(_ method: String, _ call: CAPPluginCall) {
-        LocationTrackingNative.perform(method, options: call.options, native: false) { result in
+        LocationTrackingNative.perform(method, options: call.options as? TrackingJSON ?? [:], native: false) { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let value): call.resolve(value)
@@ -75,16 +75,16 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin, Location
     }
     @objc public func watchPosition(_ call: CAPPluginCall) {
         call.keepAlive = true
-        let id = call.callbackId
+        guard let id = call.callbackId else { call.reject("Missing callback id", "INTERNAL"); return }
         watches[id] = call
-        var options: TrackingJSON = call.options
+        var options: TrackingJSON = call.options as? TrackingJSON ?? [:]
         options["_watchId"] = id
         LocationTrackingNative.perform("watchPosition", options: options, native: false) { [weak self] result in
             DispatchQueue.main.async {
                 guard let self, self.watches[id] != nil else { return }
                 switch result {
                 case .success(let wire): call.resolve(wire)
-                case .failure(let error): call.resolve(["error": ["code": (error as? TrackingError)?.code ?? "INTERNAL", "message": error.localizedDescription]])
+                case .failure(let error): call.reject(error.localizedDescription, (error as? TrackingError)?.code ?? "INTERNAL")
                 }
             }
         }

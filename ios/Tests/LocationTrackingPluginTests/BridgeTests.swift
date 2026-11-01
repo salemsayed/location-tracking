@@ -5,7 +5,7 @@ import CoreLocation
 @MainActor
 final class BridgeTests: XCTestCase {
     func testMethodTableCoversTypeScriptSurface() {
-        let names = Set(LocationTrackingPlugin().pluginMethods.map { $0.name })
+        let names = Set(LocationTrackingPlugin().pluginMethods.compactMap { $0.name })
         let expected = Set(["ready", "setConfig", "reset", "getState", "start", "startGeofences", "stop", "changePace", "getCurrentPosition", "watchPosition", "clearWatch", "getOdometer", "setOdometer", "resetOdometer", "getLocations", "getCount", "insertLocation", "destroyLocations", "destroyLocation", "sync", "addGeofence", "addGeofences", "removeGeofence", "removeGeofences", "getGeofences", "getGeofence", "geofenceExists", "getHeartbeatStatus", "getProviderState", "isPowerSaveMode", "getBatteryOptimizationStatus", "openBatteryOptimizationSettings", "getPowerManagerInfo", "openPowerManagerSettings", "openLocationSettings", "openAppSettings", "getDeviceInfo", "getSensors", "checkPermissions", "requestPermissions", "requestTemporaryFullAccuracy", "log", "getLog", "destroyLog", "uploadLog", "emailLog"])
         XCTAssertEqual(names, expected)
     }
