@@ -41,9 +41,11 @@ final class CheckInNotifier {
     }
     func touch(_ settings: TrackingJSON, deadlineElapsed: Double?, force: Bool = false) {
         guard settings.flag("enabled") else { cancel(); return }
+        let deadlineChanged = latest.map { $0.1 != deadlineElapsed } ?? false
         enabled = true
         latest = (settings, deadlineElapsed)
-        if force { generation += 1; lastChecked = nil }
+        if force || deadlineChanged { generation += 1 }
+        if force { lastChecked = nil }
         drain()
     }
     private func drain() {
@@ -52,13 +54,19 @@ final class CheckInNotifier {
         let delay = settings.number("delay", 600)
         guard deadline == nil || now.elapsed + delay * 1000 <= deadline! else { cancel(); return }
         if let lastChecked, now.elapsed - lastChecked < 60000 { return }
-        lastChecked = now.elapsed
+        let previous = lastChecked
+        let mark = now.elapsed
+        lastChecked = mark
         scheduling = true
         let captured = generation
         center.authorized { allowed in
             self.queue.async {
-                guard captured == self.generation && self.enabled else { self.scheduling = false; self.drain(); return }
+                guard captured == self.generation, self.enabled, let (settings, deadline) = self.latest else {
+                    if self.lastChecked == mark { self.lastChecked = previous }
+                    self.scheduling = false; self.drain(); return
+                }
                 let now = self.clock()
+                let delay = settings.number("delay", 600)
                 guard allowed, deadline == nil || now.elapsed + delay * 1000 <= deadline! else {
                     self.scheduling = false; self.center.cancel(); return
                 }

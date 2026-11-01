@@ -75,6 +75,28 @@ final class CheckInTests: XCTestCase {
         now.elapsed += 2000; center.authorization?(true); await settle()
         XCTAssertNil(center.pending)
     }
+    func testShortenedDeadlineWhileAuthorizationIsHeldSchedulesNothing() async {
+        center.holdAuthorization = true
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 600000)
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 60000)
+        center.authorization?(true); await settle()
+        XCTAssertTrue(center.requests.isEmpty); XCTAssertNil(center.pending)
+    }
+    func testExtendedDeadlineWhileAuthorizationIsHeldStillSchedulesOnce() async {
+        center.holdAuthorization = true
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 300000)
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 600000)
+        center.holdAuthorization = false; center.authorization?(true); await settle()
+        XCTAssertEqual(center.requests.count, 1); XCTAssertNotNil(center.pending)
+    }
+    func testShortenedDeadlineWhileAddIsHeldRemovesTheObsoleteRequest() async {
+        center.holdAdd = true
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 600000); await settle()
+        XCTAssertEqual(center.requests.count, 1)
+        notifier.touch(settings, deadlineElapsed: now.elapsed + 60000)
+        center.finishAdd(); await settle()
+        XCTAssertEqual(center.requests.count, 1); XCTAssertNil(center.pending)
+    }
 }
 
 private final class FakeCheckInCenter: CheckInCenter {
