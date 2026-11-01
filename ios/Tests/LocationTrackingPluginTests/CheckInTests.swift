@@ -5,7 +5,7 @@ import UserNotifications
 @MainActor
 final class CheckInTests: XCTestCase {
     var now = TrackingInstant(wall: 1790417730456, elapsed: 100000)
-    let center = FakeCheckInCenter()
+    private let center = FakeCheckInCenter()
     var notifier: CheckInNotifier!
     let settings: TrackingJSON = ["enabled": true, "delay": 120, "title": "Tracking check-in", "text": "Tap to resume"]
     override func setUp() { notifier = CheckInNotifier(queue: .main, clock: { [unowned self] in self.now }, center: center, warning: { _ in }) }
