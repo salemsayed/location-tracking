@@ -117,4 +117,25 @@ final class BridgeTests: XCTestCase {
         XCTAssertFalse(delivered)
     }
 
+    func testWatchRechecksServicesBeforeClassifyingDeniedError() async {
+        let services = LocationServices { false }
+        var delivered = false
+        let source = PositionSource(options: [:], continuous: true, services: services) { _ in delivered = true }
+        defer { source.stop() }
+        source.locationManager(CLLocationManager(), didFailWithError: CLError(.denied))
+        await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
+        XCTAssertFalse(delivered)
+    }
+    func testWatchPermissionRevocationIsTerminalWhenServicesRemainEnabled() async {
+        let services = LocationServices { true }
+        var failure: TrackingError?
+        let source = PositionSource(options: [:], continuous: true, services: services) { result in
+            if case .failure(let error) = result { failure = error as? TrackingError }
+        }
+        defer { source.stop() }
+        source.locationManager(CLLocationManager(), didFailWithError: CLError(.denied))
+        await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
+        XCTAssertEqual(failure?.code, "PERMISSION_DENIED")
+    }
+
 }

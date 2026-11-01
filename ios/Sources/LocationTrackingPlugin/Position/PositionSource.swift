@@ -3,6 +3,7 @@ import CoreLocation
 
 final class PositionSource: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
+    private let services: LocationServices
     private let callback: (Result<CLLocation, Error>) -> Void
     private let collector: SampleCollector
     private let rejectMock: Bool
@@ -12,7 +13,8 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
     private var stopped = false
     private var timeout: DispatchWorkItem?
     private var deliveredAt: Double?
-    init(options: TrackingJSON, continuous: Bool, callback: @escaping (Result<CLLocation, Error>) -> Void) {
+    init(options: TrackingJSON, continuous: Bool, services: LocationServices = .shared, callback: @escaping (Result<CLLocation, Error>) -> Void) {
+        self.services = services
         self.callback = callback
         self.collector = SampleCollector(Int(options.number("samples", 3)))
         self.rejectMock = options.flag("_rejectMock")
@@ -43,8 +45,8 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
         }
     }
     func start() {
-        guard continuous || LocationServices.shared.enabled else { callback(.failure(TrackingError("LOCATION_DISABLED", "Location Services are disabled"))); stop(); return }
-        guard !LocationServices.shared.enabled || manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { callback(.failure(TrackingError("PERMISSION_DENIED", "Location permission is required"))); stop(); return }
+        guard continuous || services.enabled else { callback(.failure(TrackingError("LOCATION_DISABLED", "Location Services are disabled"))); stop(); return }
+        guard !services.enabled || manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { callback(.failure(TrackingError("PERMISSION_DENIED", "Location permission is required"))); stop(); return }
         manager.startUpdatingLocation()
     }
     func stop() { stopped = true; timeout?.cancel(); manager.stopUpdatingLocation(); manager.delegate = nil }
@@ -67,7 +69,14 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         if (error as? CLError)?.code == .locationUnknown { return }
-        if continuous && !LocationServices.shared.enabled { return }
+        if continuous {
+            services.refresh { [weak self] in
+                guard let self, self.services.enabled else { return }
+                self.fail(error)
+            }
+        } else { fail(error) }
+    }
+    private func fail(_ error: Error) {
         guard !stopped else { return }
         callback(.failure(TrackingError((error as? CLError)?.code == .denied ? "PERMISSION_DENIED" : "UNAVAILABLE", "Core Location could not obtain a position")))
         stop()
