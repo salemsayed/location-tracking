@@ -25,7 +25,7 @@ final class TrackingLog {
     func clear() throws { try store.save("logs", ["entries": []]); entries = [] }
     static func redact(_ text: String) -> String {
         var result = text
-        for pattern in [#"(?i)\b(?:https?|wss?)://[^\s"'<>]+"#, #"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"#, #"(?i)("?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|secret|client[_-]?secret|api[_-]?key|authorization)\b"?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|[^\s,;&}]+)"#, #"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#] {
+        for pattern in [#"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"#, #"(?i)\b(?:https?|wss?)://[^\s"'<>]+"#, #"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"#, #"(?i)("?\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|secret|client[_-]?secret|api[_-]?key|authorization)\b"?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|[^\s,;&}]+)"#] {
             if let regex = try? NSRegularExpression(pattern: pattern) { result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "[redacted]") }
         }
         return result

@@ -8,7 +8,8 @@ final class TrackingConfig {
         self.store = store
         self.secrets = secrets
         value = Self.merge(ConfigDefaults.value, try store.load("config") ?? [:])
-        if (try store.load("authorization"))?.flag("configured") == true, let auth = try secrets.load() {
+        if (try store.load("authorization"))?.flag("configured") == true {
+            guard let auth = try secrets.load() else { throw TrackingError("IO_ERROR", "Stored authorization is missing from Keychain") }
             var http = value.object("http")
             http["authorization"] = auth
             value["http"] = http
