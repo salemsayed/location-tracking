@@ -39,7 +39,9 @@ final class CheckInUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["State: enabled"].exists)
         XCTAssertTrue(app.staticTexts["Check-in pending: true"].waitForExistence(timeout: 15))
         let start = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Session start:'")).firstMatch.label
+        let elapsedStart = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Elapsed start:'")).firstMatch.label
         XCTAssertFalse(start.hasSuffix(": 0"))
+        XCTAssertFalse(elapsedStart.hasSuffix(": 0"))
         app.terminate(); XCUIDevice.shared.press(.home)
         system.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.01)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
         func notification() -> XCUIElement { system.staticTexts.matching(NSPredicate(format: "label == %@", "Location tracking test check-in")).firstMatch }
@@ -64,6 +66,7 @@ final class CheckInUITests: XCTestCase {
         XCTAssertTrue(opened)
         XCTAssertTrue(app.staticTexts["Last start reason: restore"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.staticTexts[start].exists)
+        XCTAssertTrue(app.staticTexts[elapsedStart].exists)
         XCTAssertTrue(app.staticTexts["Delivered: 0"].waitForExistence(timeout: 10))
         let restored = XCTAttachment(screenshot: app.screenshot()); restored.name = "restored-original-deadline"; restored.lifetime = .keepAlways; add(restored)
         app.buttons["Stop tracking"].tap()

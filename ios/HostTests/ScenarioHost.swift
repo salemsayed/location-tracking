@@ -86,14 +86,14 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
 }
 
 final class ScenarioViewController: UIViewController {
-    private let status = UILabel(), start = UILabel(), reason = UILabel(), pending = UILabel(), delivered = UILabel(), harness = UILabel()
+    private let status = UILabel(), start = UILabel(), elapsed = UILabel(), reason = UILabel(), pending = UILabel(), delivered = UILabel(), harness = UILabel()
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         let begin = UIButton(type: .system); begin.setTitle("Start check-in", for: .normal); begin.addTarget(self, action: #selector(beginCheckIn), for: .touchUpInside)
         let stop = UIButton(type: .system); stop.setTitle("Stop tracking", for: .normal); stop.addTarget(self, action: #selector(stopTracking), for: .touchUpInside)
         harness.text = "Harness active"
-        let stack = UIStackView(arrangedSubviews: [begin, stop, status, start, reason, pending, delivered, harness])
+        let stack = UIStackView(arrangedSubviews: [begin, stop, status, start, elapsed, reason, pending, delivered, harness])
         stack.axis = .vertical; stack.spacing = 16; stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 20), stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40)])
@@ -105,6 +105,7 @@ final class ScenarioViewController: UIViewController {
         let state = latest["state"] as? TrackingJSON ?? [:], runtime = latest["runtime"] as? TrackingJSON ?? [:]
         set(status, "State: \(state["enabled"] as? Bool == true ? "enabled" : "disabled")")
         set(start, "Session start: \(Int64((runtime["trackingStartedAt"] as? Double) ?? 0))")
+        set(elapsed, "Elapsed start: \(Int64((runtime["trackingStartedElapsed"] as? Double) ?? 0))")
         let records = latest["locations"] as? [TrackingJSON] ?? []
         set(reason, "Last start reason: \(records.last { $0["event"] as? String == "tracking_start" }?["reason"] as? String ?? "none")")
         set(pending, "Check-in pending: \((latest["pending"] as? [TrackingJSON])?.isEmpty == false)")
