@@ -39,6 +39,10 @@ class StartupOnlyTests(unittest.TestCase):
     def test_only_a_runner_that_never_started_is_retryable(self):
         self.assertTrue(startup_only(*STARTUP))
 
+    def test_the_xcode_26_wording_of_the_startup_failure_is_retryable(self):
+        hung = 'The test runner hung before establishing connection.'
+        self.assertTrue(startup_only(summary(failures=[(runner_error(), hung)]), tree(('System Failures', [case(runner_error(), 'Failed', [hung])]))))
+
     def test_executed_or_failed_tests_are_never_retryable(self):
         self.assertFalse(startup_only(*ASSERTION))
         self.assertFalse(startup_only(*MIXED))
