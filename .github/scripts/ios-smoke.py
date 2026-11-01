@@ -28,9 +28,9 @@ def move():
         sim('location', identifier, 'set', f'{24.7136 + index * 0.001},46.6753')
 
 thread = threading.Thread(target=move, daemon=True)
-thread.start()
 try:
     sim('launch', '--terminate-running-process', identifier, bundle, '--ios-stage1-smoke', timeout=120)
+    thread.start()
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         if result.exists():
@@ -49,7 +49,13 @@ finally:
     if state.exists():
         pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-state.json').write_bytes(state.read_bytes())
         print(state.read_text())
-    subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=30)
-    with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
-        subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=30)
-    sim('location', identifier, 'clear')
+    if thread.ident is not None:
+        thread.join(timeout=5)
+    if not thread.is_alive():
+        try:
+            subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=15)
+            with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
+                subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=15)
+            sim('location', identifier, 'clear', timeout=15)
+        except subprocess.SubprocessError:
+            print('Simulator diagnostic cleanup did not finish')
