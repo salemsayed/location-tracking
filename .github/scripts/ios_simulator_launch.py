@@ -1,6 +1,14 @@
 import subprocess
 import time
 import pathlib
+import tempfile
+
+
+def simctl_output(*arguments, timeout=120):
+    with tempfile.TemporaryFile(mode='w+') as output:
+        subprocess.run(['xcrun', 'simctl', *arguments], stdout=output, text=True, check=True, timeout=timeout)
+        output.seek(0)
+        return output.read().strip()
 
 
 def show_simulator(identifier):

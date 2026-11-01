@@ -2,14 +2,14 @@ import json
 import os
 import pathlib
 import subprocess
-from ios_simulator_launch import launch_and_wait
+from ios_simulator_launch import launch_and_wait, simctl_output
 
 identifier = os.environ['IOS_SIMULATOR']
 app = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-simulator/Build/Products/Debug-iphonesimulator/App.app'
 bundle = 'com.brickssoft.locationtracking.example'
 
 def sim(*args, timeout=120):
-    return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=timeout).strip()
+    return simctl_output(*args, timeout=timeout)
 
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, timeout=600)
@@ -53,9 +53,12 @@ finally:
         pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-state.json').write_bytes(state.read_bytes())
         print(state.read_text())
     try:
-        subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=15)
         with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
-            subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=15)
+            subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App" OR process == "SpringBoard" OR process == "splashboardd"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=30)
+    except subprocess.SubprocessError:
+        print('Simulator native log capture did not finish')
+    try:
+        subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=15)
         sim('location', identifier, 'clear', timeout=15)
     except subprocess.SubprocessError:
         print('Simulator diagnostic cleanup did not finish')

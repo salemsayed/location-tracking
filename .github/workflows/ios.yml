@@ -73,7 +73,7 @@ jobs:
           for task_pid in $(pgrep -x App || true); do
             sample "$task_pid" 3 -file "$RUNNER_TEMP/app-thread-$task_pid.txt" || true
           done
-          xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1 || true
+          xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "SpringBoard" OR process == "splashboardd" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1 || true
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -230,7 +230,7 @@ jobs:
         if: failure() && env.LEGACY_AVAILABLE == 'true'
         run: |
           xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-legacy.xcresult" --output-path "$RUNNER_TEMP/legacy-diagnostics" || true
-          xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "installd" OR process == "runningboardd"' > "$RUNNER_TEMP/legacy-launch.log" 2>&1
+          xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "SpringBoard" OR process == "splashboardd" OR process == "installd" OR process == "runningboardd"' > "$RUNNER_TEMP/legacy-launch.log" 2>&1
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:

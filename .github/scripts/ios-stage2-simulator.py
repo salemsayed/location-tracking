@@ -7,7 +7,7 @@ import subprocess
 import time
 import urllib.request
 import uuid
-from ios_simulator_launch import launch_and_wait
+from ios_simulator_launch import launch_and_wait, simctl_output
 
 identifier = os.environ['IOS_SIMULATOR']
 app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
@@ -19,7 +19,7 @@ checks = []
 route = None
 
 def sim(*args, timeout=120):
-    return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=timeout).strip()
+    return simctl_output(*args, timeout=timeout)
 
 def check(value, description):
     if not value:

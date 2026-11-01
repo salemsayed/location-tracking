@@ -3,7 +3,7 @@ import os
 import pathlib
 import re
 import subprocess
-from ios_simulator_launch import show_simulator
+from ios_simulator_launch import show_simulator, simctl_output
 
 root = pathlib.Path(os.environ['RUNNER_TEMP'])
 report = root / 'ios-legacy-runtime.txt'
@@ -20,7 +20,7 @@ def run(command, timeout=600):
             return 124
 
 def available(version):
-    data = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j'], timeout=60))
+    data = json.loads(simctl_output('list', 'runtimes', '-j', timeout=60))
     return [r for r in data['runtimes'] if r.get('isAvailable') and r['version'].startswith(version)]
 
 def boot(runtime):
