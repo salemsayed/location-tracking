@@ -12,6 +12,9 @@ writeFileSync(join(consumer, 'package.json'), JSON.stringify({ name: 'ios-tarbal
 cpSync(join(root, 'example/www'), join(consumer, 'www'), { recursive: true });
 writeFileSync(join(consumer, 'capacitor.config.json'), JSON.stringify({ appId: 'com.brickssoft.locationtracking.example', appName: 'LT Example', webDir: 'www', ios: { ...(manager === 'CocoaPods' ? { preferredContentMode: 'mobile' } : {}) } }));
 run('npm', ['install']);
+mkdirSync(join(consumer, 'www/vendor'), { recursive: true });
+cpSync(join(consumer, 'node_modules/@capacitor/core/dist/capacitor.js'), join(consumer, 'www/vendor/capacitor.js'));
+cpSync(join(consumer, 'node_modules/@bricks-soft/capacitor-location-tracking/dist/plugin.js'), join(consumer, 'www/vendor/plugin.js'));
 run('npx', ['cap', 'add', 'ios', ...(manager === 'CocoaPods' ? ['--packagemanager', 'CocoaPods'] : [])]);
 for (const file of ['AppDelegate.swift', 'SceneDelegate.swift', 'Info.plist']) {
   cpSync(join(root, 'example/ios/App/App', file), join(consumer, 'ios/App/App', file));

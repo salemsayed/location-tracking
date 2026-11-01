@@ -65,6 +65,23 @@ jobs:
           cp -R "$RUNNER_TEMP/LTExample.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa"
           zip -qry "$RUNNER_TEMP/location-tracking-example-unsigned.ipa" Payload
+      - name: Select simulator
+        run: python3 .github/scripts/ios-simulator.py
+      - name: Build simulator consumer
+        run: |
+          cd "$RUNNER_TEMP/ios-consumer/ios/App"
+          if [ -d App.xcworkspace ]; then
+            xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=NO
+          else
+            xcodebuild -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=NO
+          fi
+      - name: WebView bridge and position smoke
+        run: python3 .github/scripts/ios-smoke.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-bridge-${{ matrix.manager }}
+          path: ${{ runner.temp }}/ios-smoke.json
       - uses: actions/upload-artifact@v4
         with:
           name: ios-example-unsigned-${{ matrix.manager }}
