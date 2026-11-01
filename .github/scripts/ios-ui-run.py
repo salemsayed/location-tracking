@@ -1,8 +1,12 @@
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import threading
 import time
+
+BOOTSTRAP_FAILURE = 'Test runner never began executing tests after launching'
 
 directory = pathlib.Path(os.environ['RUNNER_TEMP'], 'ui-samples')
 directory.mkdir(exist_ok=True)
@@ -10,14 +14,29 @@ log = (directory / 'simulator.log').open('a')
 logger = None
 if os.environ.get('IOS_SIMULATOR'):
     logger = subprocess.Popen(['xcrun', 'simctl', 'spawn', os.environ['IOS_SIMULATOR'], 'log', 'stream', '--style', 'compact', '--level', 'info', '--predicate', 'process == "App" OR process == "SpringBoard" OR process == "usernotificationsd" OR process == "runningboardd" OR process == "PermissionUITests-Runner" OR process == "splashboardd"'], stdout=log, stderr=subprocess.STDOUT)
-process = subprocess.Popen(sys.argv[1:])
+command = sys.argv[1:]
+result_bundle = pathlib.Path(command[command.index('-resultBundlePath') + 1]) if '-resultBundlePath' in command else None
 seen = {}
 sampled = set()
-deadline = time.monotonic() + 1200
-try:
+process = None
+
+
+def relay(stream, lines):
+    for line in stream:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        lines.append(line)
+
+
+def attempt(deadline):
+    global process
+    lines = []
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    reader = threading.Thread(target=relay, args=(process.stdout, lines), daemon=True)
+    reader.start()
     while process.poll() is None:
         if time.monotonic() > deadline:
-            raise TimeoutError('UI test command exceeded 20 minutes')
+            raise TimeoutError('UI test command exceeded its deadline')
         try:
             listing = subprocess.check_output(['ps', '-axo', 'pid=,comm='], text=True, timeout=10)
         except subprocess.SubprocessError:
@@ -36,9 +55,21 @@ try:
                 except subprocess.SubprocessError:
                     print('UI stack sampling did not finish for ' + pid, flush=True)
         time.sleep(2)
-    raise SystemExit(process.returncode)
+    reader.join(timeout=30)
+    return process.returncode, any(BOOTSTRAP_FAILURE in line for line in lines)
+
+
+try:
+    deadline = time.monotonic() + 2400
+    code, bootstrap = attempt(deadline)
+    if code != 0 and bootstrap:
+        print('XCTest runner was suspended before it began executing tests; relaunching the same tests once', flush=True)
+        if result_bundle is not None and result_bundle.exists():
+            shutil.move(str(result_bundle), str(result_bundle.with_name(result_bundle.stem + '-runner-bootstrap.xcresult')))
+        code, bootstrap = attempt(deadline)
+    raise SystemExit(code)
 finally:
-    if process.poll() is None:
+    if process is not None and process.poll() is None:
         process.terminate()
         try:
             process.wait(timeout=10)

@@ -92,6 +92,7 @@ jobs:
             ${{ runner.temp }}/ios-tests.xcresult
             ${{ runner.temp }}/ios-permissions.xcresult
             ${{ runner.temp }}/ios-checkin.xcresult
+            ${{ runner.temp }}/*-runner-bootstrap.xcresult
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
@@ -168,7 +169,7 @@ jobs:
     continue-on-error: ${{ matrix.required == 'false' }}
     env:
       LEGACY_REQUIRED: ${{ matrix.required }}
-    timeout-minutes: ${{ matrix.required == 'true' && 75 || 20 }}
+    timeout-minutes: ${{ matrix.required == 'true' && 90 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -267,5 +268,6 @@ jobs:
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
             ${{ runner.temp }}/ios-legacy-checkin.xcresult
+            ${{ runner.temp }}/*-runner-bootstrap.xcresult
             ${{ runner.temp }}/ui-samples
             ${{ runner.temp }}/ios-stage2
