@@ -128,7 +128,8 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(sequence().suffix(2), ["motionchange:false", "tracking_start:start_geofences"])
         advance(40 * 60000); XCTAssertTrue(core.state().flag("enabled"))
         advance(20 * 60000); XCTAssertFalse(core.state().flag("enabled"))
-        core.call("startGeofences", [:], native: true) { result in XCTAssertEqual((result.failure as? TrackingError)?.code, "UNAVAILABLE") }
+        if #available(iOS 17.0, *) { XCTAssertNotNil(core.geofences) }
+        else { core.call("startGeofences", [:], native: true) { result in XCTAssertEqual((result.failure as? TrackingError)?.code, "UNAVAILABLE") } }
     }
     func testWhenInUseBackgroundRestoreWaitsForActiveAndRevokedPermissionStops() throws {
         try prepare(); try started(); core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
@@ -238,6 +239,37 @@ final class TrackingEngineTests: XCTestCase {
         now.elapsed = 5000; try reopen()
         XCTAssertNotNil(TrackedLocation.from(core.runtime.object("lastLocation")))
         XCTAssertNil(TrackedLocation.from(core.runtime.object("lastLocation"))?.elapsed)
+    }
+    func testGeofenceRecordsEventsModeAndApproximateAccuracy() throws {
+        try prepare(); core.engine.timers.cancelAll(); core.syncer.close()
+        let backend = FakeGeofenceBackend()
+        core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { [weak self] in self?.events.append(($0, $1)) }, record: { [weak self] in self?.records.append($0) }, url: url, clock: { [unowned self] in self.now }, automaticTimers: false, geofenceBackend: backend)
+        core.engine.context(provider: provider, foreground: true)
+        let geofences = try XCTUnwrap(core.geofences)
+        try geofences.add([GeofenceFixtures.circle("home", extras: ["k": "v"])])
+        let change = try XCTUnwrap(events.last { $0.0 == "geofenceschange" }?.1)
+        XCTAssertEqual((change["on"] as? [TrackingJSON])?.first?.text("identifier"), "home"); XCTAssertEqual(change["off"] as? [String], [])
+        XCTAssertTrue(backend.registered.isEmpty)
+        try core.engine.start(mode: "geofences")
+        XCTAssertEqual(Set(backend.registered.keys), ["home"]); XCTAssertEqual(sequence(), ["tracking_start:start_geofences"])
+        let fix = EngineFixtures.location(time: now.wall)
+        geofences.onTransitions([OsGeofenceTransition(id: "home", action: .enter, location: fix)])
+        let record = try XCTUnwrap(records.last)
+        XCTAssertEqual(record.text("event"), "geofence")
+        XCTAssertEqual(record.object("geofence").text("identifier"), "home"); XCTAssertEqual(record.object("geofence").text("action"), "ENTER")
+        XCTAssertEqual(record.object("geofence").object("extras").text("k"), "v")
+        let event = try XCTUnwrap(events.last { $0.0 == "geofence" }?.1)
+        XCTAssertEqual(event.text("identifier"), "home"); XCTAssertEqual(event.text("action"), "ENTER"); XCTAssertEqual(event.object("extras").text("k"), "v")
+        XCTAssertEqual(event.object("location").text("uuid"), record.text("uuid"))
+        var approximate = provider; approximate["accuracy"] = "approximate"
+        core.engine.providerChanged(approximate)
+        let error = try XCTUnwrap(events.last { $0.0 == "locationerror" }?.1)
+        XCTAssertEqual(error.text("code"), "PERMISSION_DENIED"); XCTAssertTrue(error["retryInMs"] is NSNull)
+        XCTAssertTrue(backend.registered.isEmpty)
+        core.engine.providerChanged(provider)
+        XCTAssertEqual(Set(backend.registered.keys), ["home"])
+        try core.engine.stop()
+        XCTAssertTrue(backend.registered.isEmpty)
     }
     func testTerminationPolicyAndOSKillWithoutCallback() throws {
         try prepare(["app": ["stopOnTerminate": false]])
