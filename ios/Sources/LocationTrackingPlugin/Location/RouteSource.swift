@@ -19,6 +19,7 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
     private var activityRunning = false
     private var cachedLocation: TrackedLocation?
     private let clock: () -> TrackingInstant
+    private var timebase: Double?
     var locations: (([TrackedLocation], String) -> Void)?
     var error: ((TrackingError, String) -> Void)?
     var activity: ((ActivitySample, String) -> Void)?
@@ -70,11 +71,31 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
     }
     func locationManager(_ source: CLLocationManager, didUpdateLocations fixes: [CLLocation]) {
         guard source === manager else { return }
-        let now = clock()
-        let valid = fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) }.map { TrackedLocation($0, receivedAt: now) }
-        if let newest = valid.max(by: { $0.isOlder(than: $1) }), cachedLocation == nil || !newest.isOlder(than: cachedLocation!) { cachedLocation = newest }
+        let valid = ordered(fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) })
+        if let newest = valid.reversed().max(by: { $0.isOlder(than: $1) }), cachedLocation == nil || !newest.isOlder(than: cachedLocation!) { cachedLocation = newest }
         guard profile.enabled else { return }
         locations?(valid, profile.sessionID)
+    }
+    private func ordered(_ fixes: [CLLocation]) -> [TrackedLocation] {
+        let now = clock()
+        let offset = now.wall - now.elapsed
+        let previous = timebase
+        timebase = offset
+        var mapped: [TrackedLocation] = []
+        for fix in fixes {
+            var location = TrackedLocation(fix)
+            var elapsed = location.time - offset
+            if elapsed > now.elapsed + 1000 {
+                guard let previous, abs(previous - offset) >= 2000, location.time - previous <= now.elapsed + 1000 else { continue }
+                elapsed = location.time - previous
+            }
+            location.elapsed = min(elapsed, now.elapsed) > 0 ? min(elapsed, now.elapsed) : nil
+            mapped.append(location)
+        }
+        for index in mapped.indices.reversed().dropFirst() {
+            if let current = mapped[index].elapsed, let next = mapped[index + 1].elapsed, current > next { mapped[index].elapsed = next }
+        }
+        return mapped
     }
     func locationManager(_ source: CLLocationManager, didFailWithError failure: Error) {
         guard source === manager, profile.enabled, (failure as? CLError)?.code != .locationUnknown else { return }
@@ -94,8 +115,8 @@ extension TrackedLocation {
     }
     init(_ fix: CLLocation, receivedAt now: TrackingInstant) {
         self.init(fix)
-        let mapped = now.elapsed - max(0, now.wall - time)
-        elapsed = mapped > 0 ? mapped : nil
+        let mapped = now.elapsed - (now.wall - time)
+        elapsed = time <= now.wall + 1000 && min(mapped, now.elapsed) > 0 ? min(mapped, now.elapsed) : nil
     }
     var location: CLLocation {
         CLLocation(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude), altitude: altitude ?? 0, horizontalAccuracy: accuracy, verticalAccuracy: altitudeAccuracy ?? -1, course: heading ?? -1, courseAccuracy: headingAccuracy ?? -1, speed: speed ?? -1, speedAccuracy: speedAccuracy ?? -1, timestamp: Date(timeIntervalSince1970: time / 1000))

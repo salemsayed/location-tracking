@@ -194,6 +194,24 @@ final class TrackingEngineTests: XCTestCase {
         try core.engine.stop()
         XCTAssertEqual((records.last?["coords"] as? TrackingJSON)?["latitude"] as? Double ?? 0, corrected.latitude, accuracy: 0.0005)
     }
+    func testBatchSpanningABackwardClockCorrectionKeepsTheNewerFix() throws {
+        try prepare(); let start = origin; try started(); core.engine.changePace(true)
+        let manager = CLLocationManager()
+        let route = RouteSource(manager: manager, relaunch: CLLocationManager(), clock: { [unowned self] in self.now })
+        route.apply(RouteProfile(enabled: true, moving: true, accuracy: "high", activityEnabled: false))
+        route.locations = { [unowned self] fixes, _ in self.core.engine.receive(fixes) }
+        advance(1000)
+        var first = EngineFixtures.moved(start, 100); first.time = now.wall; first.elapsed = nil
+        route.locationManager(manager, didUpdateLocations: [first.location])
+        var cached = EngineFixtures.moved(start, 150); cached.time = now.wall + 500; cached.elapsed = nil
+        now.wall -= 600000; now.elapsed += 1000
+        var fresh = EngineFixtures.moved(start, 250); fresh.time = now.wall - 100; fresh.elapsed = nil
+        route.locationManager(manager, didUpdateLocations: [cached.location, fresh.location])
+        let locations = records.filter { $0.text("event") == "location" }.map { ($0["coords"] as? TrackingJSON)?["latitude"] as? Double ?? 0 }
+        XCTAssertEqual(locations.count, 3)
+        XCTAssertEqual(locations.last ?? 0, fresh.latitude, accuracy: 0.0005)
+        XCTAssertEqual(route.lastLocation?.latitude, fresh.latitude)
+    }
     func testPersistedFixKeepsMonotonicTimeOnlyWhileTheClockCheckpointContinues() throws {
         try prepare(); let written = now.elapsed
         try core.updateRuntime(["lastLocation": EngineFixtures.location(time: now.wall, elapsed: written).json])
