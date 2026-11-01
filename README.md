@@ -3070,7 +3070,9 @@ threshold accepts only high-confidence samples. Location update intervals are co
 
 Heartbeats use an in-process timer and are not backfilled after a suspension or kill. When In Use tracking must start
 in the foreground; enabled intent restores when the app next becomes active. Always authorization adds significant-change
-monitoring as a relaunch trigger. iOS does not relaunch a force-quit app for location events.
+monitoring as a relaunch trigger. iOS does not relaunch a force-quit app for location events. If Location Services are
+switched off for the whole device, enabled tracking keeps its intent and original deadline and resumes when they are
+switched back on; a revoked app permission still stops it with `permission_denied`.
 
 Enable `notification.resume` and request `notifications` permission for a pending check-in after tracking goes quiet.
 Its iOS `delay` defaults to 600 seconds and is raised to `heartbeat.maxInterval + 60` when lower. Fixes and records move

@@ -44,6 +44,7 @@ final class TrackingEngine {
         guard core.runtime.flag("enabled") else { applyProfile(force: true); notifier.cancel(); return }
         guard !running else { return }
         if let remaining = deadline?.remaining(minutes: geo.number("stopAfterElapsedMinutes"), now: core.clock()), remaining <= 0 { try stop(reason: "stop_after_elapsed"); return }
+        guard provider["enabled"] as? Bool != false else { scheduleElapsedStop(); return }
         guard provider.text("permission") == "always" || provider.text("permission") == "when_in_use" else { try stop(reason: "permission_denied"); return }
         if deadline == nil { deadline = SessionDeadline(now: core.clock()) }
         try saveSession(enabled: true, mode: core.runtime.text("trackingMode", "location"))
@@ -130,7 +131,10 @@ final class TrackingEngine {
         guard !NSDictionary(dictionary: previous).isEqual(to: value) else { return }
         provider = value
         core.emit("providerchange", value)
-        guard running else { return }
+        guard running else {
+            if core.runtime.flag("enabled") { do { try restore() } catch { core.log.write("error", "Tracking restore failed") } }
+            return
+        }
         submit("providerchange", bestKnown)
         if value.flag("enabled") && value.text("permission") == "denied" { try? stop(reason: "permission_denied"); return }
         if value.flag("enabled") && (!previous.flag("enabled") || previous.text("permission") != value.text("permission")) { applyProfile(force: true) }

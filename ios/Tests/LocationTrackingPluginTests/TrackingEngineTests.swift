@@ -138,6 +138,36 @@ final class TrackingEngineTests: XCTestCase {
         core.engine.providerChanged(["enabled": true, "permission": "denied"])
         XCTAssertEqual(core.state().text("lastStopReason"), "permission_denied")
     }
+    let servicesOff: TrackingJSON = ["enabled": false, "gps": false, "network": false, "permission": "denied", "accuracy": "none", "backend": "corelocation"]
+    let revoked: TrackingJSON = ["enabled": true, "gps": true, "network": true, "permission": "denied", "accuracy": "none", "backend": "corelocation"]
+    func coldLaunch(_ state: TrackingJSON) throws {
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        try reopen(); core.engine.context(provider: state, foreground: true); try core.engine.restore()
+    }
+    func testColdRestoreWithLocationServicesOffKeepsIntentAndResumesWhenTheyReturn() throws {
+        try prepare(); try started(); let session = core.runtime["trackingStartedAt"] as? Double
+        advance(60000); try coldLaunch(servicesOff)
+        XCTAssertTrue(core.state().flag("enabled")); XCTAssertFalse(core.engine.running); XCTAssertTrue(records.isEmpty)
+        XCTAssertEqual(core.runtime["trackingStartedAt"] as? Double, session)
+        core.engine.providerChanged(provider)
+        XCTAssertTrue(core.engine.running); XCTAssertEqual(sequence(), ["tracking_start:restore"])
+        XCTAssertEqual(core.runtime["trackingStartedAt"] as? Double, session)
+    }
+    func testLocationServicesOffRestoreStillEndsAtTheOriginalDeadline() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 10]]); try started()
+        advance(60000); try coldLaunch(servicesOff)
+        advance(539999); XCTAssertTrue(core.state().flag("enabled"))
+        advance(1); XCTAssertFalse(core.state().flag("enabled")); XCTAssertEqual(core.state().text("lastStopReason"), "stop_after_elapsed")
+    }
+    func testColdRestoreAfterAppPermissionRevocationStopsAndPendingRestoreHonorsLaterRevocation() throws {
+        try prepare(); try started(); try coldLaunch(revoked)
+        XCTAssertFalse(core.state().flag("enabled")); XCTAssertEqual(core.state().text("lastStopReason"), "permission_denied")
+        XCTAssertEqual(sequence(), ["tracking_stop:permission_denied"])
+        core.engine.context(provider: provider, foreground: true); try started(); try coldLaunch(servicesOff)
+        XCTAssertTrue(core.state().flag("enabled"))
+        core.engine.providerChanged(revoked)
+        XCTAssertFalse(core.state().flag("enabled")); XCTAssertEqual(core.state().text("lastStopReason"), "permission_denied")
+    }
     func testTerminationPolicyAndOSKillWithoutCallback() throws {
         try prepare(["app": ["stopOnTerminate": false]])
         try started(); core.engine.terminate(); XCTAssertTrue(core.state().flag("enabled"))

@@ -41,14 +41,20 @@ public enum LocationTrackingNative {
             let identifiers = Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String] ?? []
             if identifiers.contains(refreshIdentifier) {
                 BGTaskScheduler.shared.register(forTaskWithIdentifier: refreshIdentifier, using: queue) { task in
-                    guard case .success(let core) = result else { task.setTaskCompleted(success: false); return }
-                    let upload = BackgroundUpload(syncer: core.syncer) { success in
-                        task.expirationHandler = nil
-                        task.setTaskCompleted(success: success)
-                        scheduleRefresh()
+                    DispatchQueue.main.async {
+                        LocationServices.shared.whenReady {
+                            queue.async {
+                                guard case .success(let core) = result else { task.setTaskCompleted(success: false); return }
+                                let upload = BackgroundUpload(syncer: core.syncer) { success in
+                                    task.expirationHandler = nil
+                                    task.setTaskCompleted(success: success)
+                                    scheduleRefresh()
+                                }
+                                task.expirationHandler = { queue.async { upload.expire() } }
+                                upload.start()
+                            }
+                        }
                     }
-                    task.expirationHandler = { queue.async { upload.expire() } }
-                    upload.start()
                 }
                 backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in scheduleRefresh() }
             }
@@ -64,14 +70,18 @@ public enum LocationTrackingNative {
         route.activity = { sample, session in queue.async { if case .success(let core) = result { core.engine.activity(sample, session: session) } } }
         route.error = { error, session in queue.async { if case .success(let core) = result { core.engine.registrationFailed(error, session: session) } } }
         route.authorizationChanged = { LocationServices.shared.refresh { permissions.providerChanged?(permissions.provider) } }
-        let provider = permissions.provider
-        let foreground = UIApplication.shared.applicationState == .active
-        queue.async { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
-        lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+        LocationServices.shared.whenReady {
             let provider = permissions.provider
-            let lastLocation = route.lastLocation
-            queue.async {
-                if case .success(let core) = result { core.engine.offerLastLocation(lastLocation); core.engine.active(provider: provider, foreground: true); core.syncer.automatic() }
+            let foreground = UIApplication.shared.applicationState == .active
+            queue.async { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
+        }
+        lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            LocationServices.shared.refresh {
+                let provider = permissions.provider
+                let lastLocation = route.lastLocation
+                queue.async {
+                    if case .success(let core) = result { core.engine.offerLastLocation(lastLocation); core.engine.active(provider: provider, foreground: true); core.syncer.automatic() }
+                }
             }
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
@@ -86,10 +96,12 @@ public enum LocationTrackingNative {
             queue.async { emit("powersavechange", payload: ["isPowerSaveMode": enabled]) }
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.protectedDataDidBecomeAvailableNotification, object: nil, queue: .main) { _ in
-            let provider = permissions.provider
-            let foreground = UIApplication.shared.applicationState == .active
-            queue.async {
-                if case .failure = result { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
+            LocationServices.shared.whenReady {
+                let provider = permissions.provider
+                let foreground = UIApplication.shared.applicationState == .active
+                queue.async {
+                    if case .failure = result { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
+                }
             }
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main) { _ in
@@ -143,12 +155,14 @@ public enum LocationTrackingNative {
         catch { nativeQueue.async { completion(.failure(TrackingError("INVALID_ARGUMENT", "Invalid JSON arguments"))) }; return }
         DispatchQueue.main.async {
             bootstrap(registerBackgroundTasks: false)
-            queue.async {
-                do {
-                    guard let result else { throw TrackingError("INTERNAL", "Native bootstrap did not complete") }
-                    let core = try result.get()
-                    core.call(method, copied, native: native) { outcome in nativeQueue.async { completion(outcome) } }
-                } catch { nativeQueue.async { completion(.failure(error)) } }
+            LocationServices.shared.whenReady {
+                queue.async {
+                    do {
+                        guard let result else { throw TrackingError("INTERNAL", "Native bootstrap did not complete") }
+                        let core = try result.get()
+                        core.call(method, copied, native: native) { outcome in nativeQueue.async { completion(outcome) } }
+                    } catch { nativeQueue.async { completion(.failure(error)) } }
+                }
             }
         }
     }
