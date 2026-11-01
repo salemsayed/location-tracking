@@ -36,7 +36,10 @@ jobs:
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
       - name: XCTest
-        run: xcodebuild test-without-building -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
+      - name: Native launch diagnostics
+        if: failure()
+        run: xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -44,6 +47,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ios-tests.xcresult
             ${{ runner.temp }}/backoffice.log
+            ${{ runner.temp }}/native-launch.log
   package:
     runs-on: macos-26
     timeout-minutes: 45
@@ -93,6 +97,7 @@ jobs:
           name: ios-bridge-${{ matrix.manager }}
           path: ${{ runner.temp }}/ios-smoke*
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
         with:
           name: ios-example-unsigned-${{ matrix.manager }}
           path: ${{ runner.temp }}/location-tracking-example-unsigned.ipa

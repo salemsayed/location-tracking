@@ -9,15 +9,15 @@ identifier = os.environ['IOS_SIMULATOR']
 app = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-simulator/Build/Products/Debug-iphonesimulator/App.app'
 bundle = 'com.brickssoft.locationtracking.example'
 
-def sim(*args):
-    return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=30).strip()
+def sim(*args, timeout=30):
+    return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=timeout).strip()
 
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False)
 subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, timeout=600)
-sim('install', identifier, str(app))
+sim('install', identifier, str(app), timeout=240)
 sim('privacy', identifier, 'grant', 'location-always', bundle)
 sim('location', identifier, 'set', '24.7136,46.6753')
-sim('launch', '--terminate-running-process', identifier, bundle, '--ios-stage1-smoke')
+sim('launch', '--terminate-running-process', identifier, bundle, '--ios-stage1-smoke', timeout=120)
 container = pathlib.Path(sim('get_app_container', identifier, bundle, 'data'))
 result = container / 'Library/Application Support/ios-stage1-smoke.json'
 finished = threading.Event()
