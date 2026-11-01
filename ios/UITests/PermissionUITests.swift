@@ -7,9 +7,11 @@ final class PermissionUITests: XCTestCase {
         if #available(iOS 16.4, *) { XCUIDevice.shared.location = XCUILocation(location: CLLocation(latitude: 24.7136, longitude: 46.6753)) }
     }
     override func tearDown() {
-        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        let app = XCUIApplication()
+        let systemAlert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        let alert = systemAlert.exists ? systemAlert : app.alerts.firstMatch
         if alert.exists { alert.buttons.firstMatch.tap() }
-        XCUIApplication().terminate()
+        app.terminate()
         if #available(iOS 16.4, *) { XCUIDevice.shared.location = nil }
     }
     func launch() -> XCUIApplication {
@@ -48,10 +50,15 @@ final class PermissionUITests: XCTestCase {
         allow.tap()
         XCTAssertTrue(app.staticTexts["Provider accuracy: approximate"].waitForExistence(timeout: 15))
         app.buttons["Request Precision"].tap()
-        XCTAssertTrue(alert.waitForExistence(timeout: 15))
-        let upgrade = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'precise' AND NOT label CONTAINS[c] 'keep'")).firstMatch
-        XCTAssertTrue(upgrade.exists)
-        upgrade.tap()
-        XCTAssertTrue(app.staticTexts["Provider accuracy: precise"].waitForExistence(timeout: 15))
+        let precise = app.staticTexts["Provider accuracy: precise"]
+        let presented = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in alert.exists || app.alerts.firstMatch.exists || precise.exists }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [presented], timeout: 15), .completed)
+        if !precise.exists {
+            let prompt = alert.exists ? alert : app.alerts.firstMatch
+            let upgrade = prompt.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'precise' AND NOT label CONTAINS[c] 'keep'")).firstMatch
+            XCTAssertTrue(upgrade.exists)
+            upgrade.tap()
+        }
+        XCTAssertTrue(precise.waitForExistence(timeout: 15))
     }
 }
