@@ -29,10 +29,12 @@ final class ExampleViewController: CAPBridgeViewController, WKScriptMessageHandl
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         guard let configuration = webView?.configuration else { return }
-        if ProcessInfo.processInfo.arguments.contains("--ios-stage1-smoke") {
+        let permissionTest = ProcessInfo.processInfo.arguments.contains("--ios-permission-smoke")
+        if ProcessInfo.processInfo.arguments.contains("--ios-stage1-smoke") || permissionTest {
             configuration.userContentController.add(self, name: "stage1")
             configuration.userContentController.addUserScript(WKUserScript(source: "window.addEventListener('error', function(e) { window.webkit.messageHandlers.stage1.postMessage({success:false,error:String(e.message)}); }); localStorage.setItem('lt.e2e', '1'); window.webkit.messageHandlers.stage1.postMessage({phase:'document-start'});", injectionTime: .atDocumentStart, forMainFrameOnly: true))
-            configuration.userContentController.addUserScript(WKUserScript(source: "var s = document.createElement('script'); s.src = 'ios-smoke.js'; s.onerror = function() { window.webkit.messageHandlers.stage1.postMessage({success:false,error:'Could not load ios-smoke.js'}); }; document.body.appendChild(s);", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+            let script = permissionTest ? "ios-permission-smoke.js" : "ios-smoke.js"
+            configuration.userContentController.addUserScript(WKUserScript(source: "var s = document.createElement('script'); s.src = '\(script)'; s.onerror = function() { window.webkit.messageHandlers.stage1.postMessage({success:false,error:'Could not load smoke script'}); }; document.body.appendChild(s);", injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

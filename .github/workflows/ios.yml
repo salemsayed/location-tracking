@@ -36,6 +36,8 @@ jobs:
         run: python3 .github/scripts/ios-simulator.py
       - name: XCTest
         run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Permission UI tests
+        run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Native launch diagnostics
         if: failure()
         run: |
@@ -47,6 +49,7 @@ jobs:
           name: ios-tests
           path: |
             ${{ runner.temp }}/ios-tests.xcresult
+            ${{ runner.temp }}/ios-permissions.xcresult
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
@@ -79,6 +82,8 @@ jobs:
           cp -R "$RUNNER_TEMP/LTExample.xcarchive/Products/Applications/App.app" "$RUNNER_TEMP/ipa/Payload/"
           cd "$RUNNER_TEMP/ipa"
           zip -qry "$RUNNER_TEMP/location-tracking-example-unsigned.ipa" Payload
+      - name: Sign Release with ad-hoc identity
+        run: python3 .github/scripts/ios-release-adhoc.py
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
       - name: Prepare simulator signing
@@ -103,3 +108,47 @@ jobs:
         with:
           name: ios-example-unsigned-${{ matrix.manager }}
           path: ${{ runner.temp }}/location-tracking-example-unsigned.ipa
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-example-adhoc-${{ matrix.manager }}
+          path: |
+            ${{ runner.temp }}/location-tracking-example-adhoc.ipa
+            ${{ runner.temp }}/ios-release-adhoc-codesign.txt
+            ${{ runner.temp }}/release-entitlements.plist
+  legacy-runtime:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Obtain and boot iOS 15 or 16
+        run: python3 .github/scripts/ios-legacy-runtime.py
+      - uses: actions/setup-node@v4
+        if: env.LEGACY_AVAILABLE == 'true'
+        with:
+          node-version: 22
+          check-latest: true
+      - name: Prepare legacy XCTest host
+        if: env.LEGACY_AVAILABLE == 'true'
+        run: |
+          npm ci
+          node .github/scripts/ios-consumer.mjs SPM
+          ruby .github/scripts/ios-test-host.rb
+          ruby .github/scripts/ios-simulator-signing.rb
+          cd testing/e2e-kit
+          npm ci
+          node src/cli/backoffice.ts --host 127.0.0.1 > "$RUNNER_TEMP/backoffice.log" 2>&1 &
+      - name: Legacy XCTest
+        if: env.LEGACY_AVAILABLE == 'true'
+        run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: ios-legacy-${{ matrix.runner }}
+          path: |
+            ${{ runner.temp }}/ios-legacy-runtime.txt
+            ${{ runner.temp }}/ios-legacy.xcresult

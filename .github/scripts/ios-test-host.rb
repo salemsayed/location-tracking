@@ -41,3 +41,26 @@ scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(app)
 scheme.add_test_target(tests)
 scheme.save_as(project_path, 'Stage1', true)
+
+ui = project.new_target(:ui_test_bundle, 'PermissionUITests', :ios, '15.0')
+ui.product_name = 'PermissionUITests'
+ui.product_reference.path = 'PermissionUITests.xctest'
+ui.add_dependency(app)
+Dir.glob(File.join(Dir.pwd, 'ios/UITests/*.swift')).each do |path|
+  ui.source_build_phase.add_file_reference(group.new_file(path))
+end
+ui.build_configurations.each do |configuration|
+  configuration.build_settings.merge!({
+    'GENERATE_INFOPLIST_FILE' => 'YES',
+    'PRODUCT_BUNDLE_IDENTIFIER' => 'com.brickssoft.locationtracking.uitests',
+    'SWIFT_VERSION' => '5.0',
+    'PRODUCT_NAME' => '$(TARGET_NAME)',
+    'TEST_TARGET_NAME' => 'App',
+    'CODE_SIGNING_ALLOWED' => 'NO'
+  })
+end
+project.save
+ui_scheme = Xcodeproj::XCScheme.new
+ui_scheme.add_build_target(app)
+ui_scheme.add_test_target(ui)
+ui_scheme.save_as(project_path, 'Permissions', true)
