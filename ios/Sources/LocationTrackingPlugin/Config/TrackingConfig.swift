@@ -68,7 +68,8 @@ final class TrackingConfig {
         persisted["http"] = persistedHttp
         let previousSecrets = value.object("http")["authorization"] as? TrackingJSON
         let nextSecrets = http["authorization"] as? TrackingJSON
-        let changedSecrets = try jsonData(previousSecrets ?? [:]) != jsonData(nextSecrets ?? [:])
+        let differentSecrets = try jsonData(previousSecrets ?? [:]) != jsonData(nextSecrets ?? [:])
+        let changedSecrets = (previousSecrets == nil) != (nextSecrets == nil) || differentSecrets
         if changedSecrets { try secrets.save(nextSecrets) }
         do {
             try store.transaction {

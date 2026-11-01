@@ -34,4 +34,12 @@ final class ConfigTests: XCTestCase {
         XCTAssertThrowsError(try config.apply(["http": ["url": "file:///secret"]], reset: true))
         XCTAssertNil(try store.load("config"))
     }
+    func testEmptyAuthorizationStillHasAKeychainEntry() throws {
+        let (store, config, secrets) = try config()
+        defer { try? secrets.save(nil) }
+        try config.apply(["http": ["authorization": TrackingJSON()]], reset: true)
+        XCTAssertNotNil(try secrets.load())
+        XCTAssertNoThrow(try TrackingConfig(store: store, secrets: secrets))
+    }
+
 }
