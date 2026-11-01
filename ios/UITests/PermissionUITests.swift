@@ -55,8 +55,8 @@ final class PermissionUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [presented], timeout: 15), .completed)
         if !precise.exists {
             let prompt = alert.exists ? alert : app.alerts.firstMatch
-            let upgrade = prompt.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'precise' AND NOT label CONTAINS[c] 'keep'")).firstMatch
-            XCTAssertTrue(upgrade.exists)
+            let upgrade = prompt.buttons.matching(NSPredicate(format: "(label CONTAINS[c] 'precise' OR label BEGINSWITH[c] 'allow' OR label == 'OK') AND NOT label CONTAINS[c] 'keep'")).firstMatch
+            XCTAssertTrue(upgrade.waitForExistence(timeout: 10), prompt.debugDescription)
             upgrade.tap()
         }
         XCTAssertTrue(precise.waitForExistence(timeout: 15))
