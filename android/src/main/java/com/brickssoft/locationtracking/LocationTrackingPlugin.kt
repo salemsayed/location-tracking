@@ -59,6 +59,11 @@ class LocationTrackingPlugin : Plugin() {
     @Volatile
     private var destroyed = false
 
+    @PluginMethod
+    fun requestTemporaryFullAccuracy(call: PluginCall) {
+        call.reject("Temporary full accuracy is only available on iOS", "UNIMPLEMENTED")
+    }
+
     override fun load() {
         components = Components.get(context)
         // The Activity is already created when plugins load, so the permission manager's lifecycle tracker would

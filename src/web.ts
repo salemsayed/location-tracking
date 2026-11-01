@@ -309,6 +309,10 @@ export class LocationTrackingWeb extends WebPlugin implements LocationTrackingPl
   }
 
   /** `location` comes from the Permissions API (`'prompt'` when it cannot tell); the other three are `'granted'`. */
+  async requestTemporaryFullAccuracy(_options: { purposeKey: string }): Promise<ProviderState> {
+    throw this.unimplemented('Not implemented on web.');
+  }
+
   async checkPermissions(): Promise<PermissionStatus> {
     const location = await queryLocationPermission();
     return {
