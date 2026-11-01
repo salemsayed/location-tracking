@@ -10,7 +10,7 @@ entitlements = {
   'get-task-allow' => true
 }
 Xcodeproj::Plist.write_to_path(entitlements, File.join(root, 'App/Simulator.entitlements'))
-Xcodeproj::Plist.write_to_path({ 'get-task-allow' => true }, File.join(root, 'App/SimulatorTests.entitlements'))
+Xcodeproj::Plist.write_to_path({ 'get-task-allow' => true, 'application-identifier' => 'LTTesting.com.brickssoft.locationtracking.uitests.xctrunner' }, File.join(root, 'App/SimulatorTests.entitlements'))
 project.targets.each do |target|
   target.build_configurations.select { |configuration| configuration.name == 'Debug' }.each do |configuration|
     configuration.build_settings.merge!({
