@@ -25,7 +25,6 @@ final class CheckInNotifier {
     private let center: CheckInCenter
     private let warning: (String) -> Void
     private var generation = 0
-    private var lastScheduled: Double?
     private var lastChecked: Double?
     private var enabled = false
     private var scheduling = false
@@ -33,16 +32,16 @@ final class CheckInNotifier {
     init(queue: DispatchQueue, clock: @escaping () -> TrackingInstant, center: CheckInCenter = SystemCheckInCenter(), warning: @escaping (String) -> Void) {
         self.queue = queue; self.clock = clock; self.center = center; self.warning = warning
     }
-    func start() { center.clearDelivered(); lastScheduled = nil; lastChecked = nil }
+    func start() { center.clearDelivered(); lastChecked = nil }
     func cancel() {
-        generation += 1; enabled = false; latest = nil; lastScheduled = nil; lastChecked = nil
+        generation += 1; enabled = false; latest = nil; lastChecked = nil
         center.cancel()
     }
     func touch(_ settings: TrackingJSON, deadlineElapsed: Double?, force: Bool = false) {
         guard settings.flag("enabled") else { cancel(); return }
         enabled = true
         latest = (settings, deadlineElapsed)
-        if force { generation += 1; lastScheduled = nil; lastChecked = nil; lastChecked = nil }
+        if force { generation += 1; lastChecked = nil }
         drain()
     }
     private func drain() {
@@ -70,7 +69,7 @@ final class CheckInNotifier {
                     self.queue.async {
                         self.scheduling = false
                         if captured == self.generation && self.enabled {
-                            if error == nil { self.lastScheduled = self.clock().elapsed }
+                            if error == nil { self.lastChecked = self.clock().elapsed }
                             else { self.warning("Check-in notification could not be scheduled") }
                         } else if !self.enabled { self.center.cancel() }
                         if captured != self.generation { self.drain() }
