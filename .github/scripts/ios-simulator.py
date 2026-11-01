@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+from ios_simulator_launch import show_simulator
 
 devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices']
 runtimes = {runtime: entries for runtime, entries in devices.items() if 'iOS' in runtime and any('iPhone' in device['name'] for device in entries)}
@@ -19,5 +20,6 @@ try:
 except subprocess.TimeoutExpired:
     print('Current runtime device creation timed out; using the available simulator')
 print(json.dumps({'device': preferred['name'], 'runtime': runtime}))
+show_simulator(identifier)
 with open(os.environ['GITHUB_ENV'], 'a') as output:
     output.write(f'IOS_SIMULATOR={identifier}\n')

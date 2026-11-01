@@ -1,5 +1,12 @@
 import subprocess
 import time
+import pathlib
+
+
+def show_simulator(identifier):
+    developer = subprocess.check_output(['xcode-select', '-p'], text=True, timeout=15).strip()
+    simulator = pathlib.Path(developer, 'Applications/Simulator.app')
+    subprocess.run(['open', '-a', str(simulator), '--args', '-CurrentDeviceUDID', identifier], check=True, timeout=30)
 
 
 def launch_and_wait(identifier, bundle, arguments, ready, log, timeout=180):

@@ -3,6 +3,7 @@ import os
 import pathlib
 import re
 import subprocess
+from ios_simulator_launch import show_simulator
 
 root = pathlib.Path(os.environ['RUNNER_TEMP'])
 report = root / 'ios-legacy-runtime.txt'
@@ -54,6 +55,7 @@ for version in ['16.4', '15.5']:
     for runtime in available(version):
         selected = boot(runtime)
         if selected:
+            show_simulator(selected)
             with open(os.environ['GITHUB_ENV'], 'a') as output:
                 output.write('IOS_SIMULATOR=' + selected + '\nLEGACY_AVAILABLE=true\n')
             break
