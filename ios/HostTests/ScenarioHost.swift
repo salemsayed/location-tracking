@@ -5,7 +5,8 @@ import LocationTrackingPlugin
 
 final class ScenarioHost: NSObject, LocationTrackingListener {
     static var current: ScenarioHost?
-    static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--ios-stage2-scenario") || UserDefaults.standard.bool(forKey: "LT.scenario") }
+    static var modeURL: URL { try! FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Stage2/enabled") }
+    static var enabled: Bool { ProcessInfo.processInfo.arguments.contains("--ios-stage2-scenario") || FileManager.default.fileExists(atPath: modeURL.path) }
     private var subscription: NativeSubscription?
     private var timer: DispatchSourceTimer?
     private let commandQueue = DispatchQueue(label: "Scenario.commands")
@@ -19,7 +20,7 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
         directory = try! FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("Stage2")
         super.init()
         try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        UserDefaults.standard.set(true, forKey: "LT.scenario")
+        try! Data("enabled".utf8).write(to: Self.modeURL, options: .atomic)
         subscription = LocationTrackingNative.addListener(self)
         let timer = DispatchSource.makeTimerSource(queue: commandQueue)
         timer.setEventHandler { [weak self] in self?.poll() }
@@ -127,6 +128,12 @@ final class ScenarioViewController: UIViewController {
         }
     }
     @objc private func stopTracking() {
-        ScenarioHost.current?.invoke("stop") { [weak self] _ in UserDefaults.standard.removeObject(forKey: "LT.scenario"); self?.harness.text = "Harness cleared"; self?.refreshPending(false, until: Date().addingTimeInterval(15)) }
+        ScenarioHost.current?.invoke("stop") { [weak self] _ in
+            do {
+                if FileManager.default.fileExists(atPath: ScenarioHost.modeURL.path) { try FileManager.default.removeItem(at: ScenarioHost.modeURL) }
+                self?.harness.text = "Harness cleared"
+            } catch { self?.harness.text = "Harness cleanup failed" }
+            self?.refreshPending(false, until: Date().addingTimeInterval(15))
+        }
     }
 }
