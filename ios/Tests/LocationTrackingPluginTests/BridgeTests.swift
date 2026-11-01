@@ -122,7 +122,7 @@ final class BridgeTests: XCTestCase {
         var delivered = false
         let source = PositionSource(options: [:], continuous: true, services: services) { _ in delivered = true }
         defer { source.stop() }
-        source.locationManager(CLLocationManager(), didFailWithError: CLError(.denied))
+        source.locationManager(CLLocationManager(), didFailWithError: NSError(domain: kCLErrorDomain, code: CLError.Code.denied.rawValue))
         await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
         XCTAssertFalse(delivered)
     }
@@ -133,7 +133,7 @@ final class BridgeTests: XCTestCase {
             if case .failure(let error) = result { failure = error as? TrackingError }
         }
         defer { source.stop() }
-        source.locationManager(CLLocationManager(), didFailWithError: CLError(.denied))
+        source.locationManager(CLLocationManager(), didFailWithError: NSError(domain: kCLErrorDomain, code: CLError.Code.denied.rawValue))
         await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
         XCTAssertEqual(failure?.code, "PERMISSION_DENIED")
     }
