@@ -61,7 +61,7 @@ class LocationTrackingPlugin : Plugin() {
 
     @PluginMethod
     fun requestTemporaryFullAccuracy(call: PluginCall) {
-        call.reject("Temporary full accuracy is only available on iOS", "UNIMPLEMENTED")
+        respond(call) { handlers.requestTemporaryFullAccuracy() }
     }
 
     override fun load() {

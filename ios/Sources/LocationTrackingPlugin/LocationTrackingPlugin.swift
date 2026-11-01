@@ -2,7 +2,7 @@ import Foundation
 import Capacitor
 
 @objc(LocationTrackingPlugin)
-public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin, LocationTrackingListener {
+public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "LocationTrackingPlugin"
     public let jsName = "LocationTracking"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -56,10 +56,13 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin, Location
     private var subscription: NativeSubscription?
     private var watches: [String: CAPPluginCall] = [:]
     public override func load() {
-        subscription = LocationTrackingNative.addListener(self)
+        subscription = LocationTrackingNative.addListener(PluginEventForwarder(self))
         LocationTrackingNative.bootstrap(registerBackgroundTasks: false)
     }
-    deinit { subscription?.remove() }
+    deinit {
+        subscription?.remove()
+        for id in watches.keys { LocationTrackingNative.call("clearWatch", options: ["id": id]) { _ in } }
+    }
     public func onEvent(_ name: String, payload: TrackingJSON) {
         DispatchQueue.main.async { [weak self] in self?.notifyListeners(name, data: payload) }
     }
@@ -140,4 +143,10 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin, Location
     @objc public func destroyLog(_ call: CAPPluginCall) { invoke("destroyLog", call) }
     @objc public func uploadLog(_ call: CAPPluginCall) { invoke("uploadLog", call) }
     @objc public func emailLog(_ call: CAPPluginCall) { invoke("emailLog", call) }
+}
+
+private final class PluginEventForwarder: LocationTrackingListener {
+    weak var plugin: LocationTrackingPlugin?
+    init(_ plugin: LocationTrackingPlugin) { self.plugin = plugin }
+    func onEvent(_ name: String, payload: TrackingJSON) { plugin?.onEvent(name, payload: payload) }
 }

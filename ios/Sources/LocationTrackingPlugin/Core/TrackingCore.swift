@@ -8,7 +8,8 @@ final class TrackingCore {
     let queue: DispatchQueue
     let store: TrackingStore
     let config: TrackingConfig
-    let log = TrackingLog()
+    let log: TrackingLog
+    let logExport = LogExport()
     let permissions: Permissions
     let positions: Positions
     let emit: (String, TrackingJSON) -> Void
@@ -25,6 +26,7 @@ final class TrackingCore {
         self.queue = queue; self.permissions = permissions; self.positions = positions; self.emit = emit; self.record = record
         let path = try url ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("LocationTracking/tracking.sqlite")
         store = try TrackingStore(url: path)
+        log = TrackingLog(store: store)
         config = try TrackingConfig(store: store, secrets: SecretStore())
         runtime = try store.load("runtime") ?? [:]
         odometer = runtime.number("odometer")
@@ -47,6 +49,7 @@ final class TrackingCore {
     func call(_ method: String, _ options: TrackingJSON, native: Bool = false, callback: @escaping (Result<TrackingJSON, Error>) -> Void) {
         do {
             guard native || ready || Self.allowed.contains(method) else { throw TrackingError("NOT_READY", "Call ready() before using this method") }
+            try Options.validate(method, options)
             switch method {
             case "ready", "reset", "setConfig":
                 let patch = method == "setConfig" ? try options.requiringObject("config") : options.object("config")
@@ -124,10 +127,13 @@ final class TrackingCore {
                 callback(.success(["accelerometer": motion.isAccelerometerAvailable, "gyroscope": motion.isGyroAvailable, "magnetometer": motion.isMagnetometerAvailable, "significantMotion": CMMotionActivityManager.isActivityAvailable(), "stepCounter": CMPedometer.isStepCountingAvailable(), "stepDetector": CMPedometer.isStepCountingAvailable(), "barometer": CMAltimeter.isRelativeAltitudeAvailable()]))
             case "log": log.write(try options.requiringString("level"), try options.requiringString("message")); callback(.success([:]))
             case "getLog": callback(.success(["log": log.read(options)]))
-            case "destroyLog": log.clear(); callback(.success([:]))
+            case "destroyLog": try log.clear(); callback(.success([:]))
             case "start", "changePace", "getHeartbeatStatus": throw TrackingError("UNAVAILABLE", "The route engine is delivered in iOS stage 2")
             case "startGeofences", "addGeofence", "addGeofences", "removeGeofence", "removeGeofences", "getGeofences", "getGeofence", "geofenceExists": throw TrackingError("UNAVAILABLE", "Geofencing is delivered in iOS stage 3 and requires iOS 17")
-            case "uploadLog", "emailLog": throw TrackingError("UNAVAILABLE", "Log export is not available in this stage")
+            case "uploadLog": try logExport.upload(log.read([:]), options: options, completion: callback)
+            case "emailLog":
+                let text = log.read([:])
+                DispatchQueue.main.async { self.logExport.email(text, options: options, completion: callback) }
             default: throw TrackingError("UNIMPLEMENTED", "Unknown method: \(method)")
             }
         } catch { callback(.failure(error)) }
@@ -146,10 +152,16 @@ final class TrackingCore {
             let fix = CLLocation(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng), altitude: coords.number("altitude"), horizontalAccuracy: accuracy, verticalAccuracy: coords.number("altitude_accuracy", -1), course: coords.number("heading", -1), speed: coords.number("speed", -1), timestamp: timestamp)
             let event = input.text("event", "location")
             guard ["location", "motionchange", "current_position", "watch_position", "heartbeat", "geofence", "tracking_start", "tracking_stop", "providerchange"].contains(event) else { throw TrackingError("INVALID_ARGUMENT", "Invalid record event") }
+            let extras = config.value.object("persistence").object("extras").merging(input.object("extras")) { _, new in new }
+            let capturedOdometer = odometer
+            let capturedNetwork = network
             DispatchQueue.main.async {
                 let provider = self.permissions.provider
-                let extras = self.config.value.object("persistence").object("extras").merging(input.object("extras")) { _, new in new }
-                let wire = RecordFactory.make(event: event, fix: fix, extras: extras, odometer: self.odometer, provider: provider, network: self.network)
+                var wire = RecordFactory.make(event: event, fix: fix, extras: extras, odometer: capturedOdometer, provider: provider, network: capturedNetwork)
+                wire["is_moving"] = input.flag("is_moving")
+                var normalized = wire.object("coords")
+                for key in ["altitude", "altitude_accuracy", "speed", "speed_accuracy", "heading", "heading_accuracy"] { normalized[key] = coords[key] ?? NSNull() }
+                wire["coords"] = normalized
                 self.queue.async {
                     do { try self.persist(wire); callback(.success(["uuid": wire.text("uuid")])) }
                     catch { callback(.failure(error)) }

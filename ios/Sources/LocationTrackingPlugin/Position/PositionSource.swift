@@ -27,6 +27,9 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
         }
         manager.distanceFilter = kCLDistanceFilterNone
         manager.pausesLocationUpdatesAutomatically = false
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
+        manager.allowsBackgroundLocationUpdates = continuous && modes.contains("location")
+        manager.showsBackgroundLocationIndicator = continuous
         if !continuous {
             let item = DispatchWorkItem { [weak self] in
                 guard let self, !self.stopped else { return }

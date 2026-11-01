@@ -20,6 +20,7 @@ final class Syncer {
     private let priority = Set(["heartbeat", "tracking_start", "tracking_stop", "providerchange"])
     init(queue: DispatchQueue, store: TrackingStore, config: TrackingConfig, emit: @escaping (String, TrackingJSON) -> Void) {
         self.queue = queue; self.store = store; self.config = config; self.emit = emit
+        failures = Int((try? store.load("uploadWait"))?.number("failures") ?? 0)
     }
     func cancel() {
         generation += 1
@@ -64,14 +65,17 @@ final class Syncer {
     private func upload(_ records: [TrackingJSON], http: TrackingJSON, attempt: Int, refreshed: Bool) {
         let captured = generation
         guard UploadBackoff.authKey(http) == UploadBackoff.authKey(config.value.object("http")) else { finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained"))); automatic(); return }
-        let auth = http.object("authorization")
+        let explicitAuthorization = http.object("headers").keys.contains { $0.lowercased() == "authorization" }
+        let auth = explicitAuthorization ? [:] : http.object("authorization")
         let expires = auth.number("expires", -1)
-        if !auth.isEmpty && !refreshed && (auth.text("accessToken").isEmpty || (expires > 0 && Date().timeIntervalSince1970 * 1000 >= expires - 60000 && auth.text("accessToken") != shortLivedToken)) {
+        if !auth.isEmpty && !auth.text("refreshUrl").isEmpty && !refreshed && (auth.text("accessToken").isEmpty || (expires > 0 && Date().timeIntervalSince1970 * 1000 >= expires - 60000 && auth.text("accessToken") != shortLivedToken)) {
             refresh(http) { result in
                 guard self.generation == captured else { return }
                 switch result {
                 case .success(let fresh): self.upload(records, http: fresh, attempt: attempt, refreshed: true)
-                case .failure(let error): self.fail(error, http: http, status: 401, retryAfter: nil)
+                case .failure(let error):
+                    if !auth.text("accessToken").isEmpty { self.upload(records, http: http, attempt: attempt, refreshed: true) }
+                    else { self.fail(error, http: http, status: 401, retryAfter: nil) }
                 }
             }
             return

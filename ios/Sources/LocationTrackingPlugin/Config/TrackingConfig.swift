@@ -19,7 +19,13 @@ final class TrackingConfig {
         var result = old
         for (key, new) in patch {
             let next = path.isEmpty ? key : path + "." + key
-            if let object = new as? TrackingJSON, !maps.contains(next) {
+            if let object = new as? TrackingJSON, maps.contains(next), next.hasPrefix("http.authorization.") {
+                var restored = object
+                for (name, value) in object {
+                    if let text = value as? String, text.hasPrefix("***"), let stored = old.object(key)[name] { restored[name] = stored }
+                }
+                result[key] = restored
+            } else if let object = new as? TrackingJSON, !maps.contains(next) {
                 result[key] = merge(old.object(key), object, path: next)
             } else if let masked = new as? String, masked.hasPrefix("***"), let stored = old[key] {
                 result[key] = stored
@@ -48,14 +54,23 @@ final class TrackingConfig {
             guard let parsed = URL(string: url), ["https", "http"].contains(parsed.scheme?.lowercased() ?? ""), parsed.host != nil else { throw TrackingError("INVALID_ARGUMENT", "http.url must be an HTTP URL") }
             if parsed.scheme == "http" { warnings.append("http.url uses unencrypted HTTP; iOS App Transport Security may refuse it") }
         }
+        for section in ["geolocation", "activity", "heartbeat", "http", "persistence", "logger"] {
+            try Self.validateNumbers(candidate.object(section))
+        }
         guard ["POST", "PUT", "PATCH"].contains(http.text("method", "POST")), http.number("timeout", 60000) > 0, http.number("maxBatchSize", 100) >= 1 else { throw TrackingError("INVALID_ARGUMENT", "Invalid HTTP method, timeout or batch size") }
         _ = try jsonData(candidate)
         var persisted = candidate
         var persistedHttp = http
         persistedHttp["authorization"] = NSNull()
         persisted["http"] = persistedHttp
+        let previousSecrets = try secrets.load()
         try secrets.save(http["authorization"] as? TrackingJSON)
-        try store.save("config", persisted)
+        do { try store.save("config", persisted) }
+        catch {
+            do { try secrets.save(previousSecrets) }
+            catch { throw TrackingError("IO_ERROR", "Configuration write and authorization rollback failed") }
+            throw error
+        }
         value = candidate
         return warnings
     }
@@ -77,6 +92,11 @@ final class TrackingConfig {
         }
         result["http"] = http
         return result
+    }
+    private static func validateNumbers(_ object: TrackingJSON) throws {
+        for (_, value) in object {
+            if let number = value as? NSNumber, !number.doubleValue.isFinite || abs(number.doubleValue) >= Double(Int64.max) / 2 { throw TrackingError("INVALID_ARGUMENT", "Configuration number is out of range") }
+        }
     }
     private static func mask(_ text: String) -> String { text.count > 8 ? "***" + text.suffix(4) : "***" }
 }

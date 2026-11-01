@@ -55,10 +55,11 @@ public enum LocationTrackingNative {
         UIDevice.current.isBatteryMonitoringEnabled = true
         let permissions = Permissions()
         let positions = Positions()
-        permissions.providerChanged = { payload in emit("providerchange", payload: payload) }
+        permissions.providerChanged = { payload in queue.async { emit("providerchange", payload: payload) } }
         queue.async {
             result = Result { try TrackingCore(queue: queue, permissions: permissions, positions: positions, emit: { emit($0, payload: $1) }, record: { record in
-                nativeQueue.async { snapshot().forEach { $0.onRecord(copy(record)) } }
+                let recipients = snapshot()
+                nativeQueue.async { recipients.forEach { $0.onRecord(copy(record)) } }
             }) }
         }
     }
@@ -69,7 +70,8 @@ public enum LocationTrackingNative {
         catch { queue.async { if case .success(let core) = result { core.log.write("warn", "Background refresh could not be scheduled") } } }
     }
     static func emit(_ name: String, payload: TrackingJSON) {
-        nativeQueue.async { snapshot().forEach { $0.onEvent(name, payload: copy(payload)) } }
+        let recipients = snapshot()
+        nativeQueue.async { recipients.forEach { $0.onEvent(name, payload: copy(payload)) } }
     }
     private static func copy(_ value: TrackingJSON) -> TrackingJSON { (try? jsonObject(jsonData(value))) ?? [:] }
     private static func snapshot() -> [LocationTrackingListener] {

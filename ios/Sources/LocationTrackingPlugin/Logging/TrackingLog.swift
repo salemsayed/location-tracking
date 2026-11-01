@@ -4,10 +4,17 @@ import os
 final class TrackingLog {
     private let logger = Logger(subsystem: "com.brickssoft.locationtracking", category: "plugin")
     private var entries: [TrackingJSON] = []
+    private let store: TrackingStore
+    init(store: TrackingStore) {
+        self.store = store
+        entries = (try? store.load("logs"))?["entries"] as? [TrackingJSON] ?? []
+    }
     func write(_ level: String, _ message: String) {
         let safe = Self.redact(message)
         entries.append(["at": Date().timeIntervalSince1970 * 1000, "level": level, "text": "\(iso()) \(level) \(safe)"])
         if entries.count > 2000 { entries.removeFirst(entries.count - 2000) }
+        do { try store.save("logs", ["entries": entries]) }
+        catch { logger.error("Log persistence failed") }
         logger.log("\(safe, privacy: .private)")
     }
     func read(_ query: TrackingJSON) -> String {
@@ -15,10 +22,10 @@ final class TrackingLog {
         if query.text("order", "asc") == "desc" { values.reverse() }
         return values.prefix(max(0, Int(query.number("limit", 2000)))).map { $0.text("text") }.joined(separator: "\n")
     }
-    func clear() { entries = [] }
+    func clear() throws { try store.save("logs", ["entries": []]); entries = [] }
     static func redact(_ text: String) -> String {
         var result = text
-        for pattern in ["(?i)Bearer\\s+[^\\s,;\"}]+", "(?i)(accessToken|refreshToken|authorization|password|secret)[\\s\"']*[:=][\\s\"']*[^\\s,;\"}]+"] {
+        for pattern in [#"(?i)\b(?:https?|wss?)://[^\s"'<>]+"#, #"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"#, #"(?i)(access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|passwd|secret|client[_-]?secret|api[_-]?key|authorization)[\s"']*[:=][\s"']*[^\s,;"}]+"#, "(?i)Bearer\\s+[^\\s,;\"}]+", "(?i)(accessToken|refreshToken|authorization|password|secret)[\\s\"']*[:=][\\s\"']*[^\\s,;\"}]+"] {
             if let regex = try? NSRegularExpression(pattern: pattern) { result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: "[redacted]") }
         }
         return result

@@ -95,10 +95,11 @@ final class Permissions: NSObject, CLLocationManagerDelegate {
     }
     func temporary(_ purpose: String, completion: @escaping (Result<TrackingJSON, Error>) -> Void) {
         guard (Bundle.main.object(forInfoDictionaryKey: "NSLocationTemporaryUsageDescriptionDictionary") as? [String: String])?[purpose] != nil else { completion(.failure(TrackingError("INVALID_ARGUMENT", "purposeKey must exist in NSLocationTemporaryUsageDescriptionDictionary"))); return }
+        guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { completion(.failure(TrackingError("PERMISSION_DENIED", "Location permission is required"))); return }
+        if manager.accuracyAuthorization == .fullAccuracy { completion(.success(provider)); return }
         manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: purpose) { error in
             DispatchQueue.main.async {
-                if let error { completion(.failure(TrackingError("PERMISSION_DENIED", error.localizedDescription))) }
-                else { completion(.success(self.provider)) }
+                completion(.success(self.provider))
             }
         }
     }

@@ -11,6 +11,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
     private struct Pending {
         var data = Data()
         var response: HTTPURLResponse?
+        var timeout: DispatchWorkItem?
         let completion: (Result<HTTPResponse, Error>) -> Void
     }
     private var pending: [Int: Pending] = [:]
@@ -19,6 +20,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.httpCookieStorage = nil
+        config.urlCredentialStorage = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.waitsForConnectivity = false
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
@@ -30,7 +32,15 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let task = session.dataTask(with: request)
-        lock.lock(); pending[task.taskIdentifier] = Pending(completion: completion); lock.unlock()
+        let deadline = DispatchWorkItem { [weak self, weak task] in
+            guard let self, let task else { return }
+            self.lock.lock(); let item = self.pending.removeValue(forKey: task.taskIdentifier); self.lock.unlock()
+            guard let item else { return }
+            task.cancel()
+            item.completion(.failure(URLError(.timedOut)))
+        }
+        lock.lock(); pending[task.taskIdentifier] = Pending(timeout: deadline, completion: completion); lock.unlock()
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout / 1000, execute: deadline)
         task.resume()
     }
     func cancel() { session.getAllTasks { $0.forEach { $0.cancel() } } }
@@ -51,6 +61,7 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock(); let item = pending.removeValue(forKey: task.taskIdentifier); lock.unlock()
         guard let item else { return }
+        item.timeout?.cancel()
         if let error { item.completion(.failure(error)) }
         else if let response = item.response { item.completion(.success(HTTPResponse(status: response.statusCode, body: item.data, retryAfter: response.value(forHTTPHeaderField: "Retry-After")))) }
         else { item.completion(.failure(TrackingError("NETWORK_ERROR", "No HTTP response"))) }
