@@ -44,6 +44,8 @@ project.save
 scheme = Xcodeproj::XCScheme.new
 scheme.add_build_target(app)
 scheme.add_test_target(tests)
+scheme.test_action.xml_element.attributes['selectedDebuggerIdentifier'] = ''
+scheme.test_action.xml_element.attributes['selectedLauncherIdentifier'] = 'Xcode.IDEFoundation.Launcher.PosixSpawn'
 scheme.save_as(project_path, 'Stage1', true)
 
 ui = project.new_target(:ui_test_bundle, 'PermissionUITests', :ios, '15.0')
@@ -67,6 +69,8 @@ project.save
 ui_scheme = Xcodeproj::XCScheme.new
 ui_scheme.add_build_target(app)
 ui_scheme.add_test_target(ui)
+ui_scheme.test_action.xml_element.attributes['selectedDebuggerIdentifier'] = ''
+ui_scheme.test_action.xml_element.attributes['selectedLauncherIdentifier'] = 'Xcode.IDEFoundation.Launcher.PosixSpawn'
 ui_scheme.save_as(project_path, 'Permissions', true)
 
 scenario = project.main_group.new_group('ScenarioHost')
