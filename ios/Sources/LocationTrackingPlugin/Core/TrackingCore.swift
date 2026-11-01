@@ -105,7 +105,7 @@ final class TrackingCore {
                 watchIDs.remove(id)
                 DispatchQueue.main.async { self.positions.clear(id) }
                 callback(.success([:]))
-            case "getProviderState": DispatchQueue.main.async { callback(.success(self.permissions.provider)) }
+            case "getProviderState": DispatchQueue.main.async { LocationServices.shared.whenReady { callback(.success(self.permissions.provider)) } }
             case "checkPermissions": DispatchQueue.main.async { self.permissions.status { callback(.success($0)) } }
             case "requestPermissions":
                 let types = options["permissions"] as? [String] ?? Permissions.order
@@ -179,7 +179,7 @@ final class TrackingCore {
         do { try persist(wire, updateRuntime: true); stored = true }
         catch {
             log.write("error", "Failed to persist position")
-            if (error as? TrackingError)?.code == "STORAGE_FULL" { emit("storagefull", ["uuid": wire.text("uuid"), "event": wire.text("event"), "diskFreeBytes": NSNull()]) }
+            if (error as? TrackingError)?.storageFull == true { emit("storagefull", ["uuid": wire.text("uuid"), "event": wire.text("event"), "diskFreeBytes": NSNull()]) }
             runtime["lastRecordAt"] = wire["recorded_at"]
         }
         record(wire)

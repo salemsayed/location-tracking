@@ -88,8 +88,22 @@ final class BridgeTests: XCTestCase {
     }
     func testServiceAvailabilityRefreshRunsOffMainThread() async {
         let services = LocationServices { XCTAssertFalse(Thread.isMainThread); return false }
-        await withCheckedContinuation { continuation in services.refresh { continuation.resume() } }
+        XCTAssertFalse(services.isReady)
+        await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
+        XCTAssertTrue(services.isReady)
         XCTAssertFalse(services.enabled)
+    }
+
+    func testLiveDeliverySurvivesReadOnlyStoreWithoutStorageFull() throws {
+        var events: [String] = []
+        var native: [TrackingJSON] = []
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { name, _ in events.append(name) }, record: { native.append($0) }, url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("readonly.sqlite"))
+        try core.store.execute("PRAGMA query_only=ON")
+        core.deliver(["uuid": "live", "event": "current_position", "recorded_at": iso()])
+        XCTAssertEqual(native.count, 1)
+        XCTAssertTrue(events.contains("location"))
+        XCTAssertFalse(events.contains("storagefull"))
+        core.syncer.transport.close()
     }
 
 }

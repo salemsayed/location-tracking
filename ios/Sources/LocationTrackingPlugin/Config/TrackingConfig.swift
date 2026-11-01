@@ -22,25 +22,6 @@ final class TrackingConfig {
             value["http"] = http
         }
     }
-    static func merge(_ old: TrackingJSON, _ patch: TrackingJSON, path: String = "") -> TrackingJSON {
-        let maps = ["http.headers", "http.params", "persistence.extras", "http.authorization.refreshPayload", "http.authorization.refreshHeaders"]
-        var result = old
-        for (key, new) in patch {
-            let next = path.isEmpty ? key : path + "." + key
-            if let object = new as? TrackingJSON, maps.contains(next), next.hasPrefix("http.authorization.") {
-                var restored = object
-                for (name, value) in object {
-                    if let text = value as? String, text.hasPrefix("***"), let stored = old.object(key)[name] { restored[name] = stored }
-                }
-                result[key] = restored
-            } else if let object = new as? TrackingJSON, !maps.contains(next) {
-                result[key] = merge(old.object(key), object, path: next)
-            } else if let masked = new as? String, masked.hasPrefix("***"), let stored = old[key] {
-                result[key] = stored
-            } else { result[key] = new }
-        }
-        return result
-    }
     @discardableResult func apply(_ patch: TrackingJSON, reset: Bool) throws -> [String] {
         var warnings: [String] = []
         var candidate = try ConfigSchema.parse(patch, base: reset ? ConfigDefaults.value : value, warnings: &warnings)

@@ -28,7 +28,9 @@ final class TrackingStore {
     deinit { sqlite3_close(db) }
 
     private func databaseError(_ message: String) -> TrackingError {
-        TrackingError(sqlite3_errcode(db) == SQLITE_FULL ? "STORAGE_FULL" : "IO_ERROR", message)
+        var error = TrackingError("IO_ERROR", message)
+        error.storageFull = sqlite3_errcode(db) == SQLITE_FULL
+        return error
     }
 
     func execute(_ sql: String) throws {

@@ -4,13 +4,10 @@ import CoreFoundation
 struct ConfigSchema {
     static let authorization: TrackingJSON = ["strategy": "JWT", "accessToken": NSNull(), "refreshToken": NSNull(), "refreshUrl": NSNull(), "refreshPayload": TrackingJSON(), "refreshHeaders": TrackingJSON(), "refreshPayloadEncoding": "json", "expires": -1]
     static let maps = Set(["http.headers", "http.params", "persistence.extras", "http.authorization.refreshPayload", "http.authorization.refreshHeaders"])
-    static let enums = ["geolocation.desiredAccuracy": ["high", "balanced", "low", "passive"], "http.method": ["POST", "PUT", "PATCH"], "http.authorization.strategy": ["JWT"], "http.authorization.refreshPayloadEncoding": ["json", "form"], "notification.priority": ["min", "low", "default", "high", "max"], "logger.logLevel": ["off", "error", "warn", "info", "debug", "verbose"], "locationProvider": ["auto", "google", "huawei", "android"]]
+    static let enums = ["geolocation.desiredAccuracy": ["high", "balanced", "low", "passive"], "http.method": ["POST", "PUT", "PATCH"], "http.authorization.strategy": ["JWT"], "http.authorization.refreshPayloadEncoding": ["json", "form"], "notification.priority": ["min", "low", "default", "high", "max"], "logger.logLevel": ["off", "error", "warn", "info", "debug", "verbose"], "locationProvider": ["auto", "gms", "hms", "android"]]
     static func parse(_ patch: TrackingJSON, base: TrackingJSON, defaults: TrackingJSON = ConfigDefaults.value, path: String = "", lenient: Bool = false, warnings: inout [String]) throws -> TrackingJSON {
         var result = base
-        var schema = defaults
-        if path == "http.authorization" { schema = authorization }
-        if path == "backgroundPermissionRationale" { schema = ["title": NSNull(), "message": NSNull(), "positiveAction": NSNull(), "negativeAction": NSNull()] }
-        if path == "notification" { schema["title"] = NSNull() }
+        let schema = path == "http.authorization" ? authorization : defaults
         for (key, raw) in patch {
             let name = path.isEmpty ? key : path + "." + key
             guard let fallback = schema[key] else { warnings.append("Ignoring unknown config key \(name)"); continue }
@@ -57,7 +54,8 @@ struct ConfigSchema {
                         else if let text = raw as? String { value = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)) }
                         else { value = nil }
                         guard let value, value.isFinite, abs(value) < Double(Int64.max) / 2 else { throw invalid(name) }
-                        result[key] = value
+                        let decimals = Set(["geolocation.distanceFilter", "geolocation.elasticityMultiplier", "geolocation.stationaryRadius", "geolocation.filter.trackingAccuracyThreshold", "geolocation.filter.maxImpliedSpeed", "geolocation.filter.odometerAccuracyThreshold"])
+                        result[key] = decimals.contains(name) ? value : value.rounded(.towardZero)
                     }
                 } else {
                     guard let text = raw as? String else { throw invalid(name) }

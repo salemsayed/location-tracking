@@ -5,6 +5,7 @@ public typealias TrackingJSON = [String: Any]
 public struct TrackingError: Error, LocalizedError {
     public let code: String
     public let message: String
+    var storageFull = false
     public var errorDescription: String? { message }
     public init(_ code: String, _ message: String) { self.code = code; self.message = message }
 }

@@ -112,4 +112,21 @@ final class ConfigTests: XCTestCase {
         XCTAssertEqual(reopened.value.object("http").text("url"), "https://example.invalid")
     }
 
+    func testAndroidNullEveryLeafFixtureAndProviderEnums() throws {
+        func nullLeaves(_ object: TrackingJSON) -> TrackingJSON {
+            object.mapValues { value -> Any in
+                if let group = value as? TrackingJSON, !group.isEmpty { return nullLeaves(group) }
+                return NSNull()
+            }
+        }
+        let (_, config, _) = try config()
+        try config.apply(["http": ["autoSync": false], "notification": ["largeIcon": "icon", "color": "#FFFFFF", "resume": ["title": "Paused"]], "backgroundPermissionRationale": ["message": "Custom"]], reset: true)
+        try config.apply(nullLeaves(ConfigDefaults.value), reset: false)
+        XCTAssertEqual(try jsonData(config.value), try jsonData(ConfigDefaults.value))
+        for provider in ["auto", "gms", "hms", "android"] {
+            try config.apply(["locationProvider": provider.uppercased()], reset: false)
+            XCTAssertEqual(config.value.text("locationProvider"), provider)
+        }
+    }
+
 }

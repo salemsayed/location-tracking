@@ -65,6 +65,9 @@ enum ConfigDefaults {
     "startOnBoot": false
   },
   "notification": {
+    "title": null,
+    "largeIcon": null,
+    "color": null,
     "text": "Location tracking is active",
     "smallIcon": "drawable/lt_ic_notification",
     "priority": "default",
@@ -72,6 +75,7 @@ enum ConfigDefaults {
     "channelName": "Location tracking",
     "actions": [],
     "resume": {
+      "title": null,
       "enabled": false,
       "text": "Location tracking is paused. Tap to resume.",
       "channelName": "Paused location tracking",
@@ -85,7 +89,7 @@ enum ConfigDefaults {
     "logLevel": "info",
     "logMaxDays": 3
   },
-  "backgroundPermissionRationale": {},
+  "backgroundPermissionRationale": {"title": null, "message": null, "positiveAction": null, "negativeAction": null},
   "locationProvider": "auto"
 }
 """#.utf8))
