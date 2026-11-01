@@ -107,7 +107,10 @@ final class TrackingStore {
     }
 
     func prune(days: Int, maximum: Int, now: Date = Date()) throws {
-        try transaction {
+        try transaction { try enforceRetention(days: days, maximum: maximum, now: now) }
+    }
+
+    func enforceRetention(days: Int, maximum: Int, now: Date = Date()) throws {
             if days >= 0 {
                 let cutoff = iso(now.addingTimeInterval(-Double(days) * 86400))
                 try write("DELETE FROM records WHERE json_extract(value,'$.recorded_at') < ?", [cutoff])
@@ -115,6 +118,5 @@ final class TrackingStore {
             if maximum >= 0 {
                 try execute("DELETE FROM records WHERE id NOT IN (SELECT id FROM records ORDER BY id DESC LIMIT \(maximum))")
             }
-        }
     }
 }

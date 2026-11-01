@@ -171,10 +171,13 @@ final class TrackingCore {
     }
     private func persist(_ wire: TrackingJSON) throws {
         var next = runtime; next["lastRecordAt"] = wire["recorded_at"]
-        try store.transaction { try store.insert(wire); try store.save("runtime", next) }
-        runtime = next
         let persistence = config.value.object("persistence")
-        try store.prune(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
+        try store.transaction {
+            try store.insert(wire)
+            try store.save("runtime", next)
+            try store.enforceRetention(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
+        }
+        runtime = next
         record(wire)
         emit("location", wire)
         syncer.automatic()

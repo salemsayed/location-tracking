@@ -39,4 +39,11 @@ final class TemplateTests: XCTestCase {
         let fallback = try jsonObject(BodyBuilder.build([record], http: http))
         XCTAssertEqual(fallback.object("location").text("uuid"), record.text("uuid"))
     }
+    func testStrictJSONRejectsLenientSyntax() {
+        for invalid in ["{a:1}", "{'a':1}", "{\"a\":01}", "{\"a\":NaN}", "{\"a\":1,}", "[1,]", "true false"] {
+            XCTAssertFalse(StrictJSON.isValid(invalid), invalid)
+        }
+        for valid in ["null", "true", "-1.25e+3", "{\"a\":[1,false,null]}"] { XCTAssertTrue(StrictJSON.isValid(valid), valid) }
+    }
+
 }

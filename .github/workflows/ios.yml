@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ios-${{ github.ref }}
+  group: ios-native-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   swift:
@@ -32,7 +32,7 @@ jobs:
       - name: XCTest
         run: xcodebuild test-without-building -scheme BricksSoftCapacitorLocationTracking -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: ios-tests
           path: |
@@ -80,7 +80,7 @@ jobs:
       - name: WebView bridge and position smoke
         run: python3 .github/scripts/ios-smoke.py
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: ${{ !cancelled() }}
         with:
           name: ios-bridge-${{ matrix.manager }}
           path: ${{ runner.temp }}/ios-smoke.json
