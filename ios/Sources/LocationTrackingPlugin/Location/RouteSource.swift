@@ -54,7 +54,7 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
                 activityRunning = true
                 let session = new.sessionID
                 motion.startActivityUpdates(to: .main) { [weak self] sample in
-                    guard let self, self.profile.enabled, self.profile.sessionID == session, let sample else { return }
+                    guard let self, self.profile.enabled, self.profile.activityEnabled, self.activityRunning, self.profile.sessionID == session, let sample else { return }
                     let confidence: Int
                     switch sample.confidence { case .low: confidence = 33; case .medium: confidence = 66; case .high: confidence = 100; @unknown default: confidence = 0 }
                     self.activity?(ActivitySample.map(automotive: sample.automotive, cycling: sample.cycling, running: sample.running, walking: sample.walking, stationary: sample.stationary, confidence: confidence), session)
@@ -62,7 +62,7 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
             }
         } else { stopMotion() }
     }
-    private func stopMotion() { if activityRunning { motion.stopActivityUpdates(); activityRunning = false } }
+    private func stopMotion() { if activityRunning { activityRunning = false; motion.stopActivityUpdates() } }
     static func accuracy(_ desired: String) -> CLLocationAccuracy {
         switch desired { case "balanced": return kCLLocationAccuracyHundredMeters; case "low": return kCLLocationAccuracyKilometer; case "passive": return kCLLocationAccuracyThreeKilometers; default: return kCLLocationAccuracyBest }
     }

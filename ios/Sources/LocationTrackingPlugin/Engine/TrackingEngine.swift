@@ -175,7 +175,7 @@ final class TrackingEngine {
         recordMotion(false, known)
     }
     func activity(_ sample: ActivitySample, session: String? = nil) {
-        guard running, session == nil || session == sessionID, sample.confidence >= Int(config.object("activity").number("minimumActivityRecognitionConfidence", 75)) else { return }
+        guard running, session == nil || session == sessionID, !config.object("activity").flag("disableMotionActivityUpdates"), sample.confidence >= Int(config.object("activity").number("minimumActivityRecognitionConfidence", 75)) else { return }
         let now = core.clock().elapsed
         let current = core.runtime.object("activity")
         if current.text("type") != sample.type || lastActivityPersisted == nil || now - lastActivityPersisted! >= 60000 {

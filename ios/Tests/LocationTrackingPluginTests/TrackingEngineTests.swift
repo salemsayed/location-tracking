@@ -163,6 +163,14 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(core.engine.heartbeatStatus().number("pendingHeartbeats"), 2)
         try core.engine.stop(); XCTAssertEqual(core.engine.heartbeatStatus().text("strategy"), "disabled")
     }
+    func testDisablingActivityIgnoresQueuedSamplesButStillAllowsManualPace() throws {
+        try prepare(); try started()
+        try core.config.apply(["activity": ["disableMotionActivityUpdates": true]], reset: false)
+        core.engine.configChanged()
+        core.engine.activity(ActivitySample(type: "walking", confidence: 100), session: core.engine.sessionID)
+        XCTAssertFalse(core.state().flag("isMoving")); XCTAssertFalse(events.contains { $0.0 == "activitychange" })
+        core.engine.changePace(true); XCTAssertTrue(core.state().flag("isMoving"))
+    }
     func testQueuedCallbacksFromPreviousSessionDoNotEnterTheNextSession() throws {
         try prepare(); try started(); let old = core.engine.sessionID
         try core.engine.stop(); advance(2000); try core.engine.start()
