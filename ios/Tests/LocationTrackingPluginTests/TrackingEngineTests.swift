@@ -204,6 +204,29 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(core.odometer, 0)
         try core.engine.stop(); let count = records.count; advance(60000); XCTAssertEqual(records.count, count)
     }
+    func testRecordMetadataUsesAndroidFixtureAndReadsRuntimeAtCallTime() throws {
+        try prepare(["persistence": ["extras": ["driver_id": 7]]])
+        try core.updateRuntime(["isMoving": true, "odometer": 1532.4, "activity": ["type": "in_vehicle", "confidence": 92]])
+        let wire = core.makeRecord(event: "location", fix: EngineFixtures.location())
+        XCTAssertEqual(wire.text("timestamp"), "2026-09-26T10:15:30.123Z")
+        XCTAssertEqual(wire.text("recorded_at"), "2026-09-26T10:15:30.456Z")
+        XCTAssertEqual(wire.number("elapsed_realtime_ms"), 86400123)
+        XCTAssertEqual(wire.number("boot_count"), -1); XCTAssertEqual(wire.text("backend"), "corelocation")
+        XCTAssertTrue(wire.flag("is_moving")); XCTAssertEqual(wire.number("odometer"), 1532.4)
+        XCTAssertEqual(wire.object("activity").text("type"), "in_vehicle"); XCTAssertEqual(wire.object("activity").number("confidence"), 92)
+        XCTAssertEqual(wire.object("extras").number("driver_id"), 7)
+        XCTAssertEqual(wire.object("coords").number("speed_accuracy"), 0.8)
+        XCTAssertEqual(wire.object("coords").number("heading_accuracy"), 5)
+        advance(5000); try core.updateRuntime(["isMoving": false, "odometer": 2000, "activity": ["type": "unknown", "confidence": 0]])
+        let next = core.makeRecord(event: "heartbeat", fix: nil)
+        XCTAssertFalse(next.flag("is_moving")); XCTAssertEqual(next.number("odometer"), 2000)
+        XCTAssertEqual(next.number("elapsed_realtime_ms"), 86405123)
+        XCTAssertTrue(next["timestamp"] is NSNull); XCTAssertTrue(next["coords"] is NSNull)
+        XCTAssertFalse(next.object("device").text("thermal_status").isEmpty)
+        let ids = Set((0..<200).map { _ in core.makeRecord(event: "location", fix: nil).text("uuid") })
+        XCTAssertEqual(ids.count, 200)
+        XCTAssertTrue(ids.allSatisfy { UUID(uuidString: $0) != nil })
+    }
 }
 
 private extension Result {

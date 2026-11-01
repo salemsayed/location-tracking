@@ -163,31 +163,21 @@ final class TrackingCore {
     }
     private func insert(_ input: TrackingJSON, callback: @escaping (Result<TrackingJSON, Error>) -> Void) {
         do {
-            let coords = try input.requiringObject("coords")
-            let lat = coords.number("latitude", .nan), lng = coords.number("longitude", .nan), accuracy = coords.number("accuracy", .nan)
-            guard lat.isFinite, lng.isFinite, (-90...90).contains(lat), (-180...180).contains(lng), accuracy.isFinite, accuracy > 0 else { throw TrackingError("INVALID_ARGUMENT", "Invalid coordinates or accuracy") }
-            let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let timestamp: Date
-            if let supplied = input["timestamp"] as? String {
-                guard let parsed = formatter.date(from: supplied) else { throw TrackingError("INVALID_ARGUMENT", "timestamp must be ISO-8601") }
-                timestamp = parsed
-            } else { timestamp = Date() }
-            let fix = CLLocation(coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng), altitude: coords.number("altitude"), horizontalAccuracy: accuracy, verticalAccuracy: coords.number("altitude_accuracy", -1), course: coords.number("heading", -1), speed: coords.number("speed", -1), timestamp: timestamp)
-            let event = input.text("event", "location")
-            guard ["location", "motionchange", "current_position", "watch_position", "heartbeat", "geofence", "tracking_start", "tracking_stop", "providerchange"].contains(event) else { throw TrackingError("INVALID_ARGUMENT", "Invalid record event") }
-            let extras = config.value.object("persistence").object("extras").merging(input.object("extras")) { _, new in new }
+            let now = clock()
+            let parsed = try ExternalRecord(input, now: now.wall)
+            let extras = config.value.object("persistence").object("extras").merging(parsed.extras) { _, new in new }
             let capturedOdometer = odometer
             let capturedNetwork = network
             let capturedMoving = runtime.flag("isMoving")
             let capturedActivity = runtime["activity"] ?? ["type": "unknown", "confidence": 0]
             DispatchQueue.main.async {
                 let provider = self.permissions.provider
-                var wire = RecordFactory.make(event: event, fix: fix, extras: extras, odometer: capturedOdometer, provider: provider, network: capturedNetwork)
-                wire["is_moving"] = input.flag("is_moving", capturedMoving)
+                var wire = RecordFactory.make(event: parsed.event, fix: parsed.location.location, extras: extras, odometer: capturedOdometer, provider: provider, network: capturedNetwork)
+                wire["is_moving"] = parsed.moving ?? capturedMoving
                 wire["activity"] = capturedActivity
-                var normalized = wire.object("coords")
-                for key in ["altitude", "altitude_accuracy", "speed", "speed_accuracy", "heading", "heading_accuracy"] { normalized[key] = coords[key] ?? NSNull() }
-                wire["coords"] = normalized
+                wire["coords"] = parsed.coordinates
+                wire["recorded_at"] = iso(Date(timeIntervalSince1970: now.wall / 1000))
+                wire["elapsed_realtime_ms"] = now.elapsed
                 self.queue.async {
                     do { try self.persist(wire, updateRuntime: false); self.record(wire); self.syncer.automatic(); callback(.success(["uuid": wire.text("uuid")])) }
                     catch { callback(.failure(error)) }
