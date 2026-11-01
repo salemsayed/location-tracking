@@ -53,11 +53,11 @@ final class CheckInUITests: XCTestCase {
         XCTAssertTrue(notification().exists, system.debugDescription)
         let fired = XCTAttachment(screenshot: system.screenshot()); fired.name = "check-in-after-kill"; fired.lifetime = .keepAlways; add(fired)
         XCTAssertEqual(app.state, .notRunning)
-        for _ in 0..<3 {
-            guard app.state != .runningForeground, notification().exists else { break }
-            let frame = notification().frame
-            system.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
-            if app.wait(for: .runningForeground, timeout: 3) { break }
+        notification().tap()
+        if !app.wait(for: .runningForeground, timeout: 3), notification().exists {
+            notification().swipeRight()
+            let open = system.buttons["Open"]
+            if open.waitForExistence(timeout: 5) { open.tap() }
         }
         let opened = app.wait(for: .runningForeground, timeout: 30)
         if !opened {
