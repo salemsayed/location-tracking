@@ -12,21 +12,22 @@ struct RouteProfile: Equatable {
 }
 
 final class RouteSource: NSObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
-    private let relaunch = CLLocationManager()
+    private let manager: CLLocationManager
+    private let relaunch: CLLocationManager
     private let motion = CMMotionActivityManager()
     private var profile = RouteProfile(enabled: false, moving: false, accuracy: "high", activityEnabled: false)
     private var activityRunning = false
+    private var cachedLocation: TrackedLocation?
     var locations: (([TrackedLocation], String) -> Void)?
     var error: ((TrackingError, String) -> Void)?
     var activity: ((ActivitySample, String) -> Void)?
     var authorizationChanged: (() -> Void)?
     var lastLocation: TrackedLocation? {
         precondition(Thread.isMainThread)
-        guard let fix = manager.location, fix.horizontalAccuracy >= 0, CLLocationCoordinate2DIsValid(fix.coordinate) else { return nil }
-        return TrackedLocation(fix)
+        return cachedLocation
     }
-    override init() {
+    init(manager: CLLocationManager = CLLocationManager(), relaunch: CLLocationManager = CLLocationManager()) {
+        self.manager = manager; self.relaunch = relaunch
         super.init()
         manager.delegate = self; relaunch.delegate = self
         manager.distanceFilter = kCLDistanceFilterNone
@@ -67,8 +68,11 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
         switch desired { case "balanced": return kCLLocationAccuracyHundredMeters; case "low": return kCLLocationAccuracyKilometer; case "passive": return kCLLocationAccuracyThreeKilometers; default: return kCLLocationAccuracyBest }
     }
     func locationManager(_ source: CLLocationManager, didUpdateLocations fixes: [CLLocation]) {
-        guard source === manager, profile.enabled else { return }
-        locations?(fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) }.map(TrackedLocation.init), profile.sessionID)
+        guard source === manager else { return }
+        let valid = fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) }.map(TrackedLocation.init)
+        if let newest = valid.max(by: { $0.time < $1.time }), cachedLocation == nil || newest.time >= cachedLocation!.time { cachedLocation = newest }
+        guard profile.enabled else { return }
+        locations?(valid, profile.sessionID)
     }
     func locationManager(_ source: CLLocationManager, didFailWithError failure: Error) {
         guard source === manager, profile.enabled, (failure as? CLError)?.code != .locationUnknown else { return }
