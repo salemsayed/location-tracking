@@ -3,6 +3,7 @@ import os
 import pathlib
 import plistlib
 import signal
+import shutil
 import subprocess
 import time
 import urllib.request
@@ -10,10 +11,14 @@ import uuid
 from ios_simulator_launch import launch_and_wait, simctl_output
 
 identifier = os.environ['IOS_SIMULATOR']
-app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
+source_app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
 root = pathlib.Path(os.environ['RUNNER_TEMP'])
 report = root / 'ios-stage2'
 report.mkdir(exist_ok=True)
+app = root / 'ios-scenario-host/App.app'
+if app.exists():
+    shutil.rmtree(app)
+shutil.copytree(source_app, app)
 bundle = 'com.brickssoft.locationtracking.example'
 checks = []
 route = None
@@ -42,6 +47,7 @@ values['NSLocationDefaultAccuracyReduced'] = False
 info.write_bytes(plistlib.dumps(values))
 entitlements = root / 'ios-consumer/ios/App/App/Simulator.entitlements'
 subprocess.run(['codesign', '--force', '--sign', '-', '--entitlements', str(entitlements), '--generate-entitlement-der', str(app)], check=True, timeout=60)
+subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)], check=True, timeout=60)
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False, timeout=120)
 sim('bootstatus', identifier, '-b', timeout=300)
 sim('install', identifier, str(app), timeout=240)

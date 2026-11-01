@@ -50,7 +50,7 @@ jobs:
       - name: Route and lifecycle simulator scenarios
         if: ${{ !cancelled() }}
         env:
-          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-unit-build/Build/Products/Debug-iphonesimulator/App.app
+          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-ui-build/Build/Products/Debug-iphonesimulator/App.app
         run: python3 .github/scripts/ios-stage2-simulator.py
       - name: Export UI attachments
         if: ${{ !cancelled() }}
@@ -210,7 +210,7 @@ jobs:
       - name: Legacy route and lifecycle scenarios
         if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
         env:
-          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-legacy-build/Build/Products/Debug-iphonesimulator/App.app
+          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-legacy-ui-build/Build/Products/Debug-iphonesimulator/App.app
         run: python3 .github/scripts/ios-stage2-simulator.py
       - name: Export legacy UI attachments
         if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
