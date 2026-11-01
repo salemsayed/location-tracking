@@ -45,7 +45,9 @@ info = app / 'Info.plist'
 values = plistlib.loads(info.read_bytes())
 values['NSLocationDefaultAccuracyReduced'] = False
 info.write_bytes(plistlib.dumps(values))
-entitlements = root / 'ios-consumer/ios/App/App/Simulator.entitlements'
+entitlements = root / 'ios-scenario-entitlements.plist'
+original = subprocess.run(['codesign', '--display', '--entitlements', ':-', str(source_app)], capture_output=True, check=True, timeout=30)
+entitlements.write_bytes(plistlib.dumps(plistlib.loads(original.stdout)))
 subprocess.run(['codesign', '--force', '--sign', '-', '--entitlements', str(entitlements), '--generate-entitlement-der', str(app)], check=True, timeout=60)
 subprocess.run(['codesign', '--verify', '--deep', '--strict', '--verbose=2', str(app)], check=True, timeout=60)
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False, timeout=120)
