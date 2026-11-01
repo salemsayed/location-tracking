@@ -18,7 +18,7 @@ final class BridgeTests: XCTestCase {
         core.call("getCount", [:], native: true) { result in nativeCount = (try? result.get())?.number("count") }
         XCTAssertEqual(nativeCount, 0)
         XCTAssertFalse(core.ready)
-        core.call("ready", [:]) { result in XCTAssertNoThrow(try result.get()) }
+        core.call("ready", [:]) { result in if case .failure(let error) = result { XCTFail(error.localizedDescription) } }
         XCTAssertTrue(core.ready)
         core.call("getCount", [:]) { result in XCTAssertEqual((try? result.get())?.number("count"), 0) }
         core.syncer.transport.close()

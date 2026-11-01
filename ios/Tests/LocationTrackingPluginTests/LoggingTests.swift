@@ -16,6 +16,7 @@ final class LoggingTests: XCTestCase {
         XCTAssertFalse(text.contains("https://"))
         XCTAssertFalse(text.contains("hidden"))
         XCTAssertTrue(text.contains("redacted"))
+        XCTAssertFalse(TrackingLog.redact(#"{"password":"sensitive phrase"}"#).contains("phrase"))
         try log.clear()
         XCTAssertEqual(log.read([:]), "")
     }
