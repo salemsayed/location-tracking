@@ -43,6 +43,16 @@ jobs:
           xcrun simctl location "$IOS_SIMULATOR" set '24.7136,46.6753'
       - name: Permission UI tests
         run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Route and lifecycle simulator scenarios
+        env:
+          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-unit-build/Build/Products/Debug-iphonesimulator/App.app
+        run: python3 .github/scripts/ios-stage2-simulator.py
+      - name: Export UI attachments
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -d "$RUNNER_TEMP/ios-permissions.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-permissions.xcresult" --output-path "$RUNNER_TEMP/ui-attachments"
+          fi
       - name: Native launch diagnostics
         if: failure()
         run: |
@@ -62,6 +72,8 @@ jobs:
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
             ${{ runner.temp }}/permission-attachments
+            ${{ runner.temp }}/ui-attachments
+            ${{ runner.temp }}/ios-stage2
   package:
     runs-on: macos-26
     timeout-minutes: 45
@@ -128,9 +140,10 @@ jobs:
   legacy-runtime:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.required == 'false' }}
     env:
       LEGACY_REQUIRED: ${{ matrix.required }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.required == 'true' && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -169,6 +182,23 @@ jobs:
       - name: Legacy XCTest
         if: env.LEGACY_AVAILABLE == 'true'
         run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-legacy-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Seed legacy location
+        if: env.LEGACY_AVAILABLE == 'true'
+        run: xcrun simctl location "$IOS_SIMULATOR" set '24.7136,46.6753'
+      - name: Legacy permission and notification UI tests
+        if: env.LEGACY_AVAILABLE == 'true'
+        run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+      - name: Legacy route and lifecycle scenarios
+        if: env.LEGACY_AVAILABLE == 'true'
+        env:
+          IOS_SCENARIO_APP: ${{ runner.temp }}/ios-legacy-build/Build/Products/Debug-iphonesimulator/App.app
+        run: python3 .github/scripts/ios-stage2-simulator.py
+      - name: Export legacy UI attachments
+        if: ${{ !cancelled() && env.LEGACY_AVAILABLE == 'true' }}
+        run: |
+          if [ -d "$RUNNER_TEMP/ios-legacy-permissions.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-legacy-permissions.xcresult" --output-path "$RUNNER_TEMP/legacy-ui-attachments"
+          fi
       - name: Verify required legacy coverage
         if: matrix.required == 'true'
         run: test "$LEGACY_AVAILABLE" = true && test -d "$RUNNER_TEMP/ios-legacy.xcresult"
@@ -186,3 +216,6 @@ jobs:
             ${{ runner.temp }}/ios-legacy.xcresult
             ${{ runner.temp }}/legacy-diagnostics
             ${{ runner.temp }}/legacy-launch.log
+            ${{ runner.temp }}/ios-legacy-permissions.xcresult
+            ${{ runner.temp }}/legacy-ui-attachments
+            ${{ runner.temp }}/ios-stage2

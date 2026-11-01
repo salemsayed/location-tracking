@@ -68,3 +68,11 @@ ui_scheme = Xcodeproj::XCScheme.new
 ui_scheme.add_build_target(app)
 ui_scheme.add_test_target(ui)
 ui_scheme.save_as(project_path, 'Permissions', true)
+
+scenario = project.main_group.new_group('ScenarioHost')
+app.source_build_phase.add_file_reference(scenario.new_file(File.join(Dir.pwd, 'ios/HostTests/ScenarioHost.swift')))
+project.save
+app_delegate = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/ios/App/App/AppDelegate.swift')
+File.write(app_delegate, File.read(app_delegate).sub('        LocationTrackingNative.bootstrap()', "        ScenarioHost.install()\n        LocationTrackingNative.bootstrap()"))
+scene_delegate = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/ios/App/App/SceneDelegate.swift')
+File.write(scene_delegate, File.read(scene_delegate).sub('window?.rootViewController = ExampleViewController()', 'window?.rootViewController = ScenarioHost.enabled ? ScenarioViewController() : ExampleViewController()'))
