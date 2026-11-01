@@ -35,7 +35,7 @@ final class TrackingCore {
         config = try TrackingConfig(store: store, secrets: SecretStore())
         log.configure(config.value.object("logger"))
         let persistence = config.value.object("persistence")
-        try store.prune(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
+        try store.prune(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)), now: Date(timeIntervalSince1970: clock().wall / 1000))
         runtime = try store.load("runtime") ?? [:]
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
@@ -246,7 +246,7 @@ final class TrackingCore {
         try store.transaction {
             try store.insert(wire)
             if updateRuntime { try store.save("runtime", next) }
-            try store.enforceRetention(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)))
+            try store.enforceRetention(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)), now: Date(timeIntervalSince1970: clock().wall / 1000))
         }
         if updateRuntime { runtime = next }
     }

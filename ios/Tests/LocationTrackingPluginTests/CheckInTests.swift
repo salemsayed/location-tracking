@@ -34,6 +34,15 @@ final class CheckInTests: XCTestCase {
         center.allowed = false; notifier.touch(settings, deadlineElapsed: nil); await settle()
         XCTAssertEqual(center.requests.count, 1); XCTAssertNil(center.pending)
     }
+    func testDisabledColdRestoreClearsStaleCheckIn() async throws {
+        notifier.touch(settings, deadlineElapsed: nil); await settle()
+        XCTAssertNotNil(center.pending)
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { _, _ in }, record: { _ in }, url: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("disabled.sqlite"), automaticTimers: false)
+        core.engine.notifier = notifier
+        try core.engine.restore(); await settle()
+        XCTAssertNil(center.pending); XCTAssertFalse(core.engine.running)
+        core.syncer.close()
+    }
     func testCancelBeforeAuthorizationReturnsCannotSchedule() async {
         center.holdAuthorization = true
         notifier.touch(settings, deadlineElapsed: nil); notifier.cancel()

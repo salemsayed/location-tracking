@@ -37,7 +37,8 @@ final class TrackingEngine {
     }
     func context(provider: TrackingJSON, foreground: Bool) { self.provider = provider; self.foreground = foreground }
     func restore() throws {
-        guard core.runtime.flag("enabled"), !running else { return }
+        guard core.runtime.flag("enabled") else { applyProfile(force: true); notifier.cancel(); return }
+        guard !running else { return }
         if let remaining = deadline?.remaining(minutes: geo.number("stopAfterElapsedMinutes"), now: core.clock()), remaining <= 0 { try stop(reason: "stop_after_elapsed"); return }
         guard provider.text("permission") == "always" || provider.text("permission") == "when_in_use" else { try stop(reason: "permission_denied"); return }
         if deadline == nil { deadline = SessionDeadline(now: core.clock()) }
