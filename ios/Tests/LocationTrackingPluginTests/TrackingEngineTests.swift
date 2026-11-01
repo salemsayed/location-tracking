@@ -163,6 +163,18 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(core.engine.heartbeatStatus().number("pendingHeartbeats"), 2)
         try core.engine.stop(); XCTAssertEqual(core.engine.heartbeatStatus().text("strategy"), "disabled")
     }
+    func testQueuedCallbacksFromPreviousSessionDoNotEnterTheNextSession() throws {
+        try prepare(); try started(); let old = core.engine.sessionID
+        try core.engine.stop(); advance(2000); try core.engine.start()
+        let count = records.count
+        core.engine.receive([EngineFixtures.moved(origin, 1000)], session: old)
+        core.engine.activity(ActivitySample(type: "walking", confidence: 100), session: old)
+        core.engine.registrationFailed(TrackingError("UNAVAILABLE", "old registration"), session: old)
+        XCTAssertEqual(records.count, count); XCTAssertFalse(core.state().flag("isMoving"))
+        XCTAssertFalse(events.contains { $0.0 == "locationerror" })
+        core.engine.activity(ActivitySample(type: "walking", confidence: 100), session: core.engine.sessionID)
+        XCTAssertTrue(core.state().flag("isMoving"))
+    }
     func testCoarseBackendFallbackIsUsedOnlyWithoutAVettedFix() throws {
         try prepare()
         var coarse = EngineFixtures.moved(origin, 1000); coarse.accuracy = 500

@@ -60,9 +60,9 @@ public enum LocationTrackingNative {
         let positions = Positions()
         let route = RouteSource()
         permissions.providerChanged = { payload in queue.async { if case .success(let core) = result { core.engine.providerChanged(payload) } else { emit("providerchange", payload: payload) } } }
-        route.locations = { fixes in queue.async { if case .success(let core) = result { core.engine.receive(fixes) } } }
-        route.activity = { sample in queue.async { if case .success(let core) = result { core.engine.activity(sample) } } }
-        route.error = { error in queue.async { if case .success(let core) = result { core.engine.registrationFailed(error) } } }
+        route.locations = { fixes, session in queue.async { if case .success(let core) = result { core.engine.receive(fixes, session: session) } } }
+        route.activity = { sample, session in queue.async { if case .success(let core) = result { core.engine.activity(sample, session: session) } } }
+        route.error = { error, session in queue.async { if case .success(let core) = result { core.engine.registrationFailed(error, session: session) } } }
         route.authorizationChanged = { LocationServices.shared.refresh { permissions.providerChanged?(permissions.provider) } }
         let provider = permissions.provider
         let foreground = UIApplication.shared.applicationState == .active

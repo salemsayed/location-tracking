@@ -6,7 +6,7 @@ final class TrackingEngine {
     private(set) var provider: TrackingJSON = [:]
     private var foreground = false
     private var mode = "location"
-    private var sessionID = UUID().uuidString
+    private(set) var sessionID = UUID().uuidString
     private var deadline: SessionDeadline?
     private var motion = MotionStateMachine()
     private let processor = LocationProcessor()
@@ -139,8 +139,8 @@ final class TrackingEngine {
         guard running, mode == "location" else { return }
         execute(motion.force(moving, motion.isMoving == moving ? nil : bestKnown))
     }
-    func receive(_ batch: [TrackedLocation]) {
-        guard running else { return }
+    func receive(_ batch: [TrackedLocation], session: String? = nil) {
+        guard running, session == nil || session == sessionID else { return }
         registrationFailures = 0
         if let newest = batch.max(by: { $0.time < $1.time }) { backendLocation = newest }
         if !batch.isEmpty { touchCheckIn() }
@@ -174,8 +174,8 @@ final class TrackingEngine {
         motion.offerAnchor(known)
         recordMotion(false, known)
     }
-    func activity(_ sample: ActivitySample) {
-        guard running, sample.confidence >= Int(config.object("activity").number("minimumActivityRecognitionConfidence", 75)) else { return }
+    func activity(_ sample: ActivitySample, session: String? = nil) {
+        guard running, session == nil || session == sessionID, sample.confidence >= Int(config.object("activity").number("minimumActivityRecognitionConfidence", 75)) else { return }
         let now = core.clock().elapsed
         let current = core.runtime.object("activity")
         if current.text("type") != sample.type || lastActivityPersisted == nil || now - lastActivityPersisted! >= 60000 {
@@ -185,8 +185,8 @@ final class TrackingEngine {
         if mode == "location" { execute(motion.onActivity(sample)) }
         timers.fireDue()
     }
-    func registrationFailed(_ error: TrackingError) {
-        guard running else { return }
+    func registrationFailed(_ error: TrackingError, session: String? = nil) {
+        guard running, session == nil || session == sessionID else { return }
         registrationFailures += 1
         let delay = min(300000, 10000 * pow(2, Double(min(10, registrationFailures - 1))))
         core.emit("locationerror", ["code": error.code, "message": error.message, "backend": "corelocation", "retryInMs": delay])
@@ -224,7 +224,7 @@ final class TrackingEngine {
     }
     private func applyProfile(force: Bool = false) {
         guard let source = core.routeSource else { return }
-        let profile = RouteProfile(enabled: running && mode == "location", moving: motion.isMoving, accuracy: geo.text("desiredAccuracy", "high"), activityEnabled: !config.object("activity").flag("disableMotionActivityUpdates"))
+        let profile = RouteProfile(enabled: running && mode == "location", moving: motion.isMoving, accuracy: geo.text("desiredAccuracy", "high"), activityEnabled: !config.object("activity").flag("disableMotionActivityUpdates"), sessionID: sessionID)
         DispatchQueue.main.async { source.apply(profile, force: force) }
     }
     private func initialFixRequest() {
