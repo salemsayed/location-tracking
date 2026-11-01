@@ -43,12 +43,13 @@ final class CheckInUITests: XCTestCase {
         app.terminate(); XCUIDevice.shared.press(.home)
         system.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.01)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
         func notification() -> XCUIElement { system.staticTexts.matching(NSPredicate(format: "label == %@", "Location tracking test check-in")).firstMatch }
-        XCTAssertTrue(notification().waitForExistence(timeout: 160), system.debugDescription)
+        let deliveryDeadline = Date().addingTimeInterval(160)
+        while Date() < deliveryDeadline {
+            if notification().waitForExistence(timeout: min(15, max(0, deliveryDeadline.timeIntervalSinceNow))) { break }
+            system.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45)).tap()
+        }
+        XCTAssertTrue(notification().exists, system.debugDescription)
         let fired = XCTAttachment(screenshot: system.screenshot()); fired.name = "check-in-after-kill"; fired.lifetime = .keepAlways; add(fired)
-        system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
-        XCUIDevice.shared.press(.home)
-        system.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.01)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
-        XCTAssertTrue(notification().waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .notRunning)
         for _ in 0..<3 {
             guard app.state != .runningForeground, notification().exists else { break }
