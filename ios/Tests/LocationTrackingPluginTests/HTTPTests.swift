@@ -24,7 +24,7 @@ final class HTTPTests: XCTestCase {
         store = try TrackingStore(url: storeURL)
         secrets = SecretStore(service: "LT.test." + UUID().uuidString)
         config = try TrackingConfig(store: store, secrets: secrets)
-        try config.apply(["http": TrackingConfig.merge(["url": base.appendingPathComponent("locations").absoluteString, "autoSync": false], http)], reset: true)
+        try config.apply(["http": ["url": base.appendingPathComponent("locations").absoluteString, "autoSync": false].merging(http) { _, new in new }], reset: true)
         for n in 0..<records { try store.insert(["uuid": "stable-\(n)", "event": "location", "recorded_at": iso(), "coords": ["latitude": 24.7136, "longitude": 46.6753, "accuracy": 5.2]]) }
         events = []
         syncer = Syncer(queue: .main, store: store, config: config) { [weak self] name, payload in self?.events.append((name, payload)) }
@@ -193,10 +193,12 @@ final class HTTPTests: XCTestCase {
     }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
+        try store.insert(["uuid": "priority", "event": "heartbeat", "recorded_at": iso()])
         _ = try await control("__faults", ["path": "/locations", "delayMs": 2000, "count": -1])
         do { _ = try await upload(); XCTFail("Expected timeout") } catch {}
-        XCTAssertEqual(try store.count, 1)
         XCTAssertEqual(events.last?.1.number("status"), 0)
+        XCTAssertEqual(try store.count, 2)
+        XCTAssertTrue(events.filter { $0.0 == "http" }.allSatisfy { $0.1["uuids"] as? [String] == ["stable-0"] })
         syncer.transport.close()
     }
     func waitForQueueToDrain(seconds: Double = 5) async throws {
@@ -206,13 +208,23 @@ final class HTTPTests: XCTestCase {
     }
     func testZeroAndMinusOneRetentionAllowInsertAndUpload() async throws {
         for maximum in [0, -1] {
-            try await prepare(records: 2)
+            try await prepare(records: 0)
             try config.apply(["persistence": ["maxRecordsToPersist": maximum]], reset: false)
-            try store.prune(days: 7, maximum: maximum)
-            XCTAssertEqual(try store.count, 2)
-            let uploaded = try await upload()
-            XCTAssertEqual(uploaded.count, 2)
             syncer.transport.close()
+            syncer = nil
+            config = nil
+            store = nil
+            let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { [weak self] name, payload in self?.events.append((name, payload)) }, record: { _ in }, url: storeURL)
+            for _ in 0..<2 {
+                let _: TrackingJSON = try await withCheckedThrowingContinuation { continuation in
+                    core.call("insertLocation", ["location": ["coords": ["latitude": 24, "longitude": 46, "accuracy": 5]]], native: true) { continuation.resume(with: $0) }
+                }
+            }
+            XCTAssertEqual(try core.store.count, 2)
+            let result: TrackingJSON = try await withCheckedThrowingContinuation { continuation in core.call("sync", [:], native: true) { continuation.resume(with: $0) } }
+            XCTAssertEqual((result["locations"] as? [TrackingJSON])?.count, 2)
+            XCTAssertEqual(try core.store.count, 0)
+            core.syncer.transport.close()
         }
     }
     func testCredentialsReplacementWaitsTenSecondsAndRetainsBusyTrigger() async throws {
@@ -311,7 +323,7 @@ final class HTTPTests: XCTestCase {
     func testAuthorizationEventIncludesFullLargeParsedResponse() async throws {
         try await prepare(["authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
         let response: TrackingJSON = ["padding": String(repeating: "x", count: 40000), "accessToken": "fresh"]
-        _ = try await control("__faults", ["path": "/auth/refresh", "body": String(decoding: try jsonData(response), as: UTF8.self)])
+        _ = try await control("__faults", ["path": "/auth/refresh", "status": 200, "body": String(decoding: try jsonData(response), as: UTF8.self)])
         _ = try await upload()
         let event = try XCTUnwrap(events.first { $0.0 == "authorization" }?.1)
         XCTAssertTrue(event.flag("success"))
@@ -334,7 +346,7 @@ final class HTTPTests: XCTestCase {
     func testAuthorizationTimeoutIncludesZeroStatus() async throws {
         try await prepare(["timeout": 100, "authorization": ["accessToken": "old", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
         _ = try await control("__faults", ["path": "/auth/refresh", "delayMs": 2000])
-        _ = try await upload()
+        _ = try? await upload()
         let event = try XCTUnwrap(events.first { $0.0 == "authorization" }?.1)
         XCTAssertEqual(event.number("status"), 0)
         XCTAssertNil(event["response"])
@@ -379,6 +391,34 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(completed, [false])
         XCTAssertEqual(try store.count, 1)
         syncer.transport.close()
+    }
+
+    func testCredentialsRemovalBeforeRetryPreventsAnotherRequest() async throws {
+        try await prepare(["autoSync": true, "authorization": ["accessToken": "old"]])
+        _ = try await control("__faults", ["path": "/locations", "status": 500])
+        let work = Task { try await upload() }
+        while !events.contains(where: { $0.0 == "http" }) { try await Task.sleep(nanoseconds: 20_000_000) }
+        try config.apply(["http": ["authorization": NSNull()]], reset: false)
+        do { _ = try await work.value; XCTFail("Expected changed outcome before retry") } catch {}
+        XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
+        XCTAssertEqual(try store.count, 1)
+        XCTAssertTrue((try store.load("uploadWait"))?.isEmpty ?? true)
+        syncer.transport.close()
+    }
+    func testExpiredQueueIsNotUploadedAfterReopenWithoutInsertion() async throws {
+        try await prepare(records: 0)
+        try config.apply(["persistence": ["maxDaysToPersist": 1]], reset: false)
+        try store.insert(["uuid": "expired", "event": "location", "recorded_at": iso(Date().addingTimeInterval(-172800))])
+        syncer.transport.close()
+        syncer = nil
+        config = nil
+        store = nil
+        let core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { [weak self] name, payload in self?.events.append((name, payload)) }, record: { _ in }, url: storeURL)
+        let result: Result<TrackingJSON, Error> = await withCheckedContinuation { continuation in core.call("sync", [:], native: true) { continuation.resume(returning: $0) } }
+        XCTAssertEqual((try result.get()["locations"] as? [TrackingJSON])?.count, 0)
+        XCTAssertEqual(try core.store.count, 0)
+        XCTAssertFalse(events.contains { $0.0 == "http" })
+        core.syncer.transport.close()
     }
 
 }

@@ -178,7 +178,7 @@ final class Syncer {
                     self.reject(records, error: TrackingError(status == 0 ? "NETWORK_ERROR" : "HTTP_ERROR", status == 0 ? "Network request failed" : "Upload failed: HTTP \(status)"), http: http, status: status, retryAfter: retryAfter)
                 }
             }
-        } catch { finish(.failure(error)) }
+        } catch { reject(records, error: error, http: http, status: -1, retryAfter: nil) }
     }
     private func refresh(_ http: TrackingJSON, completion: @escaping (Renewal) -> Void) {
         let auth = http.object("authorization")
@@ -244,7 +244,7 @@ final class Syncer {
     }
     private func reject(_ records: [TrackingJSON], error: Error, http: TrackingJSON, status: Int, retryAfter: Double?) {
         let usesJWT = !http.object("headers").keys.contains { $0.lowercased() == "authorization" } && !http.object("authorization").isEmpty
-        if status > 0 && !(status == 401 && usesJWT) && (!priorityOnly || passFailure != nil) {
+        if status != 0 && !(status == 401 && usesJWT) && (!priorityOnly || passFailure != nil) {
             if passFailure == nil { passFailure = (error, http, status, retryAfter) }
             if records.allSatisfy({ priority.contains($0.text("event")) }) { rejectedPriority.formUnion(records.map { $0.text("uuid") }) }
             priorityOnly = true
