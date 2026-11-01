@@ -106,4 +106,15 @@ final class BridgeTests: XCTestCase {
         core.syncer.transport.close()
     }
 
+    func testClearWatchCancelsPendingServiceStatusRead() async {
+        let services = LocationServices { true }
+        let positions = Positions(services: services)
+        var delivered = false
+        positions.request(id: "pending", options: [:], watch: true) { _ in delivered = true }
+        positions.clear("pending")
+        await withCheckedContinuation { continuation in services.whenReady { continuation.resume() } }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(delivered)
+    }
+
 }
