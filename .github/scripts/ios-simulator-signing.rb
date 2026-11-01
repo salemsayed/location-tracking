@@ -10,6 +10,7 @@ entitlements = {
   'get-task-allow' => true
 }
 Xcodeproj::Plist.write_to_path(entitlements, File.join(root, 'App/Simulator.entitlements'))
+Xcodeproj::Plist.write_to_path({ 'get-task-allow' => true }, File.join(root, 'App/SimulatorTests.entitlements'))
 project.targets.each do |target|
   target.build_configurations.select { |configuration| configuration.name == 'Debug' }.each do |configuration|
     configuration.build_settings.merge!({
@@ -21,6 +22,7 @@ project.targets.each do |target|
       'ENABLE_DEBUG_DYLIB' => 'NO'
     })
     configuration.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'App/Simulator.entitlements' if target == app
+    configuration.build_settings['CODE_SIGN_ENTITLEMENTS'] = 'App/SimulatorTests.entitlements' if target.product_type == 'com.apple.product-type.bundle.ui-testing'
   end
 end
 project.save

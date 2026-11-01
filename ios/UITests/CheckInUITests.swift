@@ -52,7 +52,8 @@ final class CheckInUITests: XCTestCase {
         XCTAssertEqual(app.state, .notRunning)
         for _ in 0..<3 {
             guard app.state != .runningForeground, notification().exists else { break }
-            notification().tap()
+            let frame = notification().frame
+            system.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
             if app.wait(for: .runningForeground, timeout: 3) { break }
         }
         let opened = app.wait(for: .runningForeground, timeout: 30)
