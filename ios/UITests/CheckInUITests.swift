@@ -44,13 +44,18 @@ final class CheckInUITests: XCTestCase {
         XCTAssertFalse(elapsedStart.hasSuffix(": 0"))
         app.terminate(); XCUIDevice.shared.press(.home)
         system.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.01)).press(forDuration: 0.1, thenDragTo: system.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
-        func notification() -> XCUIElement { system.staticTexts.matching(NSPredicate(format: "label == %@", "Location tracking test check-in")).firstMatch }
+        let title = "Location tracking test check-in"
+        func delivered() -> XCUIElement { system.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR (identifier == 'NotificationCell' AND label CONTAINS %@)", title, title)).firstMatch }
+        func notification() -> XCUIElement {
+            let text = system.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
+            return text.exists ? text : system.buttons.matching(NSPredicate(format: "identifier == 'NotificationCell' AND label CONTAINS %@", title)).firstMatch
+        }
         let deliveryDeadline = Date().addingTimeInterval(160)
         while Date() < deliveryDeadline {
-            if notification().waitForExistence(timeout: min(15, max(0, deliveryDeadline.timeIntervalSinceNow))) { break }
+            if delivered().waitForExistence(timeout: min(15, max(0, deliveryDeadline.timeIntervalSinceNow))) { break }
             system.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.45)).tap()
         }
-        XCTAssertTrue(notification().exists, system.debugDescription)
+        XCTAssertTrue(delivered().exists, system.debugDescription)
         let fired = XCTAttachment(screenshot: system.screenshot()); fired.name = "check-in-after-kill"; fired.lifetime = .keepAlways; add(fired)
         XCTAssertEqual(app.state, .notRunning)
         notification().tap()

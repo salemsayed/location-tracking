@@ -4,7 +4,7 @@ import re
 import subprocess
 from ios_simulator_launch import show_simulator, simctl_output
 
-devices = json.loads(simctl_output('list', 'devices', 'available', '-j', timeout=60))['devices']
+devices = json.loads(simctl_output('list', 'devices', 'available', '-j', timeout=600))['devices']
 runtimes = {runtime: entries for runtime, entries in devices.items() if 'iOS' in runtime and any('iPhone' in device['name'] for device in entries)}
 if not runtimes:
     raise RuntimeError('No available iPhone simulator')
@@ -13,7 +13,7 @@ phones = [device for device in runtimes[runtime] if 'iPhone' in device['name']]
 preferred = next((device for device in phones if device['state'] == 'Booted'), phones[0])
 identifier = preferred['udid']
 try:
-    result = subprocess.run(['xcrun', 'simctl', 'create', 'LT Current', 'com.apple.CoreSimulator.SimDeviceType.iPhone-13', runtime], capture_output=True, text=True, timeout=60)
+    result = subprocess.run(['xcrun', 'simctl', 'create', 'LT Current', 'com.apple.CoreSimulator.SimDeviceType.iPhone-13', runtime], capture_output=True, text=True, timeout=300)
     if result.returncode == 0:
         identifier = result.stdout.strip()
         preferred = {'name': 'LT Current (iPhone 13)', 'udid': identifier}
