@@ -10,6 +10,7 @@ final class Syncer {
     private var uploaded: [TrackingJSON] = []
     private var reducedBatch: Int?
     private var busy = false
+    private var priorityOnly = false
     private var generation = 0
     private var shortLivedToken: String?
     private var failures = 0
@@ -32,7 +33,7 @@ final class Syncer {
         let http = config.value.object("http")
         guard !http.text("url").isEmpty else { return }
         let hasPriority = records.contains { priority.contains($0.text("event")) }
-        if hasPriority { run(completion: { _ in }); return }
+        if hasPriority { run(priorityOnly: cellular && http.flag("disableAutoSyncOnCellular"), completion: { _ in }); return }
         guard http.flag("autoSync", true), !(cellular && http.flag("disableAutoSyncOnCellular")) else { return }
         if let wait = try? store.load("uploadWait"), wait.number("at") > Date().timeIntervalSince1970 * 1000,
            wait.text("reason") != "authorization" || wait.text("authKey") == UploadBackoff.authKey(http) { schedule(wait.number("at")); return }
@@ -45,10 +46,11 @@ final class Syncer {
         } else if Double(records.count) < max(1, threshold) { return }
         run(completion: { _ in })
     }
-    func run(completion: @escaping (Result<[TrackingJSON], Error>) -> Void) {
+    func run(priorityOnly: Bool = false, completion: @escaping (Result<[TrackingJSON], Error>) -> Void) {
         guard !config.value.object("http").text("url").isEmpty else { completion(.failure(TrackingError("NO_URL", "No http.url configured"))); return }
         callbacks.append(completion)
-        if busy { return }
+        if busy { if !priorityOnly { self.priorityOnly = false }; return }
+        self.priorityOnly = priorityOnly
         busy = true; uploaded = []; reducedBatch = nil
         next()
     }
@@ -56,8 +58,8 @@ final class Syncer {
         do {
             let http = config.value.object("http")
             let limit = http.flag("batchSync") ? max(1, Int(http.number("maxBatchSize", 100))) : 1
-            var chunk = try store.locations(limit: reducedBatch.map { min(limit, $0) } ?? limit)
-            if cellular && http.flag("disableAutoSyncOnCellular") { chunk = chunk.filter { priority.contains($0.text("event")) } }
+            let size = reducedBatch.map { min(limit, $0) } ?? limit
+            let chunk = priorityOnly ? Array(try store.locations().filter { priority.contains($0.text("event")) }.prefix(size)) : try store.locations(limit: size)
             if chunk.isEmpty { failures = 0; try store.save("uploadWait", [:]); finish(.success(uploaded)); return }
             upload(chunk, http: http, attempt: 0, refreshed: false)
         } catch { finish(.failure(error)) }

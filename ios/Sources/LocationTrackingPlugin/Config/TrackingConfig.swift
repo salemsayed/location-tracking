@@ -35,7 +35,9 @@ final class TrackingConfig {
     }
     @discardableResult func apply(_ patch: TrackingJSON, reset: Bool) throws -> [String] {
         var candidate = Self.merge(reset ? ConfigDefaults.value : value, patch)
-        var warnings: [String] = []
+        let clamped = ConfigValidator.clamp(candidate)
+        candidate = clamped.0
+        var warnings = clamped.1
         var heartbeat = candidate.object("heartbeat")
         heartbeat["minInterval"] = max(60, heartbeat.number("minInterval", 180))
         heartbeat["maxInterval"] = max(heartbeat.number("minInterval"), heartbeat.number("maxInterval", 300))

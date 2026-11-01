@@ -212,6 +212,10 @@ class PluginHandlersTest {
         activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         makeReady()
         for ((name, invoke) in invocations) {
+            if (name == "requestTemporaryFullAccuracy") {
+                assertRejects(ErrorCode.UNIMPLEMENTED) { invoke() }
+                continue
+            }
             try {
                 invoke()
             } catch (e: TrackingException) {
