@@ -167,9 +167,9 @@ final class TrackingEngineTests: XCTestCase {
         try prepare(); try started()
         core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test")); core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test"))
         XCTAssertEqual(events.filter { $0.0 == "locationerror" }.map { $0.1.number("retryInMs") }, [10000, 20000])
-        core.call("setOdometer", ["odometer": 250], native: true) { XCTAssertNoThrow(try $0.get()) }
+        core.call("setOdometer", ["odometer": 250], native: true) { result in if case .failure(let error) = result { XCTFail(error.localizedDescription) } }
         XCTAssertEqual(core.odometer, 250)
-        core.call("resetOdometer", [:], native: true) { XCTAssertNoThrow(try $0.get()) }
+        core.call("resetOdometer", [:], native: true) { result in if case .failure(let error) = result { XCTFail(error.localizedDescription) } }
         XCTAssertEqual(core.odometer, 0)
         try core.engine.stop(); let count = records.count; advance(60000); XCTAssertEqual(records.count, count)
     }
