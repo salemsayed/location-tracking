@@ -4,17 +4,18 @@ import CoreLocation
 final class PositionSource: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private let callback: (Result<CLLocation, Error>) -> Void
-    private let samples: Int
+    private let collector: SampleCollector
+    private let rejectMock: Bool
+    private let requestedAt = Date()
     private let continuous: Bool
     private let interval: TimeInterval
-    private var accepted = 0
-    private var best: CLLocation?
     private var stopped = false
     private var timeout: DispatchWorkItem?
-    private var deliveredAt = Date.distantPast
+    private var deliveredAt: Double?
     init(options: TrackingJSON, continuous: Bool, callback: @escaping (Result<CLLocation, Error>) -> Void) {
         self.callback = callback
-        self.samples = max(1, Int(options.number("samples", 3)))
+        self.collector = SampleCollector(Int(options.number("samples", 3)))
+        self.rejectMock = options.flag("_rejectMock")
         self.continuous = continuous
         self.interval = max(0, options.number("interval", 1000)) / 1000
         super.init()
@@ -33,7 +34,7 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
         if !continuous {
             let item = DispatchWorkItem { [weak self] in
                 guard let self, !self.stopped else { return }
-                if let best = self.best { self.callback(.success(best)) }
+                if let best = self.collector.best { self.callback(.success(best)) }
                 else { self.callback(.failure(TrackingError("TIMEOUT", "Position request timed out"))) }
                 self.stop()
             }
@@ -42,27 +43,33 @@ final class PositionSource: NSObject, CLLocationManagerDelegate {
         }
     }
     func start() {
-        guard CLLocationManager.locationServicesEnabled() else { callback(.failure(TrackingError("LOCATION_DISABLED", "Location Services are disabled"))); stop(); return }
-        guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { callback(.failure(TrackingError("PERMISSION_DENIED", "Location permission is required"))); stop(); return }
+        guard continuous || CLLocationManager.locationServicesEnabled() else { callback(.failure(TrackingError("LOCATION_DISABLED", "Location Services are disabled"))); stop(); return }
+        guard !CLLocationManager.locationServicesEnabled() || manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { callback(.failure(TrackingError("PERMISSION_DENIED", "Location permission is required"))); stop(); return }
         manager.startUpdatingLocation()
     }
     func stop() { stopped = true; timeout?.cancel(); manager.stopUpdatingLocation(); manager.delegate = nil }
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard !stopped else { return }
         for fix in locations where fix.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid(fix.coordinate) {
+            if !continuous && rejectMock && fix.sourceInformation?.isSimulatedBySoftware == true { continue }
             if continuous {
-                if Date().timeIntervalSince(deliveredAt) >= interval { deliveredAt = Date(); callback(.success(fix)) }
+                let now = TrackingClock.elapsedMilliseconds()
+                if deliveredAt == nil || now - deliveredAt! >= interval * 1000 { deliveredAt = now; callback(.success(fix)) }
             } else {
-                if best == nil || fix.horizontalAccuracy < best!.horizontalAccuracy { best = fix }
-                accepted += 1
-                if accepted >= samples { callback(.success(best!)); stop(); return }
+                if fix.timestamp < requestedAt.addingTimeInterval(-2) { continue }
+                if collector.add(fix) { callback(.success(collector.best!)); stop(); return }
             }
         }
     }
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if continuous && !stopped && (manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse) { manager.startUpdatingLocation() }
+    }
+
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         if (error as? CLError)?.code == .locationUnknown { return }
+        if continuous && !CLLocationManager.locationServicesEnabled() { return }
         guard !stopped else { return }
         callback(.failure(TrackingError((error as? CLError)?.code == .denied ? "PERMISSION_DENIED" : "UNAVAILABLE", "Core Location could not obtain a position")))
-        if !continuous { stop() }
+        stop()
     }
 }

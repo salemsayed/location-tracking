@@ -125,6 +125,32 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try store.count, 0)
         syncer.transport.close()
     }
+    func testPolicyReevaluatesAfterPriorityUploadWhenNetworkChanges() async throws {
+        try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true])
+        try store.insert(["uuid": "priority", "event": "heartbeat", "recorded_at": iso()])
+        _ = try await control("__faults", ["path": "/locations", "delayMs": 300])
+        syncer.cellular = true
+        syncer.automatic()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        syncer.cellular = false
+        syncer.automatic()
+        let deadline = Date().addingTimeInterval(5)
+        while try store.count > 0, Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        XCTAssertEqual(try store.count, 0)
+        XCTAssertEqual(events.filter { $0.0 == "http" }.compactMap { $0.1["uuids"] as? [String] }, [["priority"], ["stable-0"]])
+        syncer.transport.close()
+    }
+    func testGzippedLogUploadUsesRealURLSession() async throws {
+        try await prepare(records: 0)
+        let exporter = LogExport()
+        let response: TrackingJSON = try await withCheckedThrowingContinuation { continuation in
+            do { try exporter.upload("Simulator diagnostic", options: ["url": base.appendingPathComponent("logs").absoluteString, "params": ["source": "ios"]]) { continuation.resume(with: $0) } }
+            catch { continuation.resume(throwing: error) }
+        }
+        XCTAssertTrue(response.flag("success"))
+        XCTAssertEqual(response.number("status"), 200)
+        syncer.transport.close()
+    }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
         _ = try await control("__faults", ["path": "/locations", "delayMs": 2000, "count": -1])

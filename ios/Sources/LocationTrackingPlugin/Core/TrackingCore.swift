@@ -80,6 +80,7 @@ final class TrackingCore {
                 let id = options.text("_watchId", UUID().uuidString)
                 if watch { watchIDs.insert(id) }
                 var request = options
+                request["_rejectMock"] = config.value.object("geolocation").object("filter").flag("rejectMockLocations")
                 if !watch && request["timeout"] == nil { request["timeout"] = config.value.object("geolocation").number("locationTimeout", 30000) }
                 guard request.number("timeout", 30000) > 0, request.number("samples", 3) >= 1, request.number("maximumAge") >= 0, request.number("interval", 1000) >= 0 else { throw TrackingError("INVALID_ARGUMENT", "Invalid position options") }
                 DispatchQueue.main.async {
@@ -89,6 +90,7 @@ final class TrackingCore {
                             if watch && !self.watchIDs.contains(id) { return }
                             do {
                                 let fix = try result.get()
+                                if watch && self.config.value.object("geolocation").object("filter").flag("rejectMockLocations") && fix.sourceInformation?.isSimulatedBySoftware == true { return }
                                 let extras = self.config.value.object("persistence").object("extras").merging(options.object("extras")) { _, new in new }
                                 let wire = RecordFactory.make(event: watch ? "watch_position" : "current_position", fix: fix, extras: extras, odometer: self.odometer, provider: provider, network: self.network)
                                 if options.flag("persist", !watch) { try self.persist(wire) }
@@ -105,9 +107,9 @@ final class TrackingCore {
             case "getProviderState": DispatchQueue.main.async { callback(.success(self.permissions.provider)) }
             case "checkPermissions": DispatchQueue.main.async { self.permissions.status { callback(.success($0)) } }
             case "requestPermissions":
-                let types = options["permissions"] as? [String] ?? ["location", "backgroundLocation", "activityRecognition", "notifications"]
-                guard types.allSatisfy({ ["location", "backgroundLocation", "activityRecognition", "notifications"].contains($0) }) else { throw TrackingError("INVALID_ARGUMENT", "Unknown permission") }
-                let ordered = ["location", "backgroundLocation", "activityRecognition", "notifications"].filter { types.contains($0) }
+                let types = options["permissions"] as? [String] ?? Permissions.order
+                guard types.allSatisfy({ Permissions.order.contains($0) }) else { throw TrackingError("INVALID_ARGUMENT", "Unknown permission") }
+                let ordered = Permissions.order.filter { types.contains($0) }
                 DispatchQueue.main.async { self.permissions.request(ordered) { callback(.success($0)) } }
             case "requestTemporaryFullAccuracy":
                 let purpose = try options.requiringString("purposeKey")

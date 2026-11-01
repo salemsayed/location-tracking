@@ -1,7 +1,6 @@
 import Foundation
 import CoreLocation
 import UIKit
-import Darwin
 
 struct RecordFactory {
     static func make(event: String, fix: CLLocation?, extras: TrackingJSON, odometer: Double, provider: TrackingJSON, network: String) -> TrackingJSON {
@@ -21,8 +20,6 @@ struct RecordFactory {
                 "backend": "corelocation", "extras": extras, "provider": provider, "network": network, "device": device]
     }
     static func continuousMilliseconds() -> Double {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        return Double(mach_continuous_time()) * Double(info.numer) / Double(info.denom) / 1e6
+        TrackingClock.elapsedMilliseconds()
     }
 }

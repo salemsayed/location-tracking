@@ -5,6 +5,7 @@ import UserNotifications
 import UIKit
 
 final class Permissions: NSObject, CLLocationManagerDelegate {
+    static let order = ["location", "notifications", "activityRecognition", "backgroundLocation"]
     let manager: CLLocationManager
     private let motion = CMMotionActivityManager()
     private var requests: [([String], (TrackingJSON) -> Void)] = []

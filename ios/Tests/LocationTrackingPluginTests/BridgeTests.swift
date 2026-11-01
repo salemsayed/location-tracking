@@ -34,4 +34,8 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(wire.text("backend"), "corelocation")
         XCTAssertNoThrow(try jsonData(wire))
     }
+    func testPermissionOrderMatchesAndroid() {
+        XCTAssertEqual(Permissions.order, ["location", "notifications", "activityRecognition", "backgroundLocation"])
+    }
+
 }

@@ -198,5 +198,6 @@ final class Syncer {
         busy = false
         let waiting = callbacks; callbacks = []
         waiting.forEach { $0(result) }
+        if case .success = result { queue.async { [weak self] in self?.automatic() } }
     }
 }
