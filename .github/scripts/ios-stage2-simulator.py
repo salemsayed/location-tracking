@@ -2,12 +2,12 @@ import json
 import os
 import pathlib
 import plistlib
-import re
 import signal
 import subprocess
 import time
 import urllib.request
 import uuid
+from ios_simulator_launch import launch_and_wait
 
 identifier = os.environ['IOS_SIMULATOR']
 app = pathlib.Path(os.environ['IOS_SCENARIO_APP'])
@@ -56,10 +56,11 @@ directory.mkdir(parents=True, exist_ok=True)
 def launch():
     for name in ['ready.json', 'command.json', 'response.json']:
         (directory / name).unlink(missing_ok=True)
-    output = sim('launch', '--terminate-running-process', identifier, bundle, '--ios-stage2-scenario')
-    pid = int(re.search(r':\s*(\d+)\s*$', output).group(1))
-    wait_for(lambda: (directory / 'ready.json').exists(), 'native scenario host launch', timeout=45)
-    return pid
+    def ready():
+        path = directory / 'ready.json'
+        return json.loads(path.read_text()) if path.exists() else None
+    result = launch_and_wait(identifier, bundle, ['--ios-stage2-scenario'], ready, report / 'launch.log', timeout=120)
+    return result['pid']
 
 def call(method, options=None, allow_failure=False):
     command = {'id': str(uuid.uuid4()), 'method': method, 'options': options or {}}

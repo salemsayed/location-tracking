@@ -26,7 +26,7 @@ final class ScenarioHost: NSObject, LocationTrackingListener {
         timer.setEventHandler { [weak self] in self?.poll() }
         timer.schedule(deadline: .now(), repeating: .milliseconds(200))
         self.timer = timer; timer.resume()
-        write(["ready": true], "ready.json")
+        write(["ready": true, "pid": ProcessInfo.processInfo.processIdentifier], "ready.json")
     }
     static func install() { if enabled && current == nil { current = ScenarioHost() } }
     func onRecord(_ record: TrackingJSON) { DispatchQueue.main.async { self.audit.append(record); self.snapshot { _ in } } }
