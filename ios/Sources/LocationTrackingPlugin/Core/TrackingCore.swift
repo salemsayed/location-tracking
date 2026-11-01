@@ -28,6 +28,7 @@ final class TrackingCore {
         store = try TrackingStore(url: path)
         log = TrackingLog(store: store)
         config = try TrackingConfig(store: store, secrets: SecretStore())
+        log.configure(config.value.object("logger"))
         runtime = try store.load("runtime") ?? [:]
         odometer = runtime.number("odometer")
         monitor.pathUpdateHandler = { [weak self] path in
@@ -57,6 +58,7 @@ final class TrackingCore {
                 let existing = try store.load("config")
                 let shouldApply = method != "ready" || resetting || existing == nil
                 let warnings = shouldApply ? try config.apply(patch, reset: resetting) : []
+                log.configure(config.value.object("logger"))
                 if method == "ready" && !native { ready = true }
                 var result = state(); result["warnings"] = warnings
                 callback(.success(result)); syncer.automatic()
@@ -127,7 +129,9 @@ final class TrackingCore {
             case "getSensors":
                 let motion = CMMotionManager()
                 callback(.success(["accelerometer": motion.isAccelerometerAvailable, "gyroscope": motion.isGyroAvailable, "magnetometer": motion.isMagnetometerAvailable, "significantMotion": CMMotionActivityManager.isActivityAvailable(), "stepCounter": CMPedometer.isStepCountingAvailable(), "stepDetector": CMPedometer.isStepCountingAvailable(), "barometer": CMAltimeter.isRelativeAltitudeAvailable()]))
-            case "log": log.write(try options.requiringString("level"), try options.requiringString("message")); callback(.success([:]))
+            case "log":
+                guard let message = options["message"] as? String else { throw TrackingError("INVALID_ARGUMENT", "message must be a string") }
+                log.write(try options.requiringString("level"), message); callback(.success([:]))
             case "getLog": callback(.success(["log": log.read(options)]))
             case "destroyLog": try log.clear(); callback(.success([:]))
             case "start", "changePace", "getHeartbeatStatus": throw TrackingError("UNAVAILABLE", "The route engine is delivered in iOS stage 2")

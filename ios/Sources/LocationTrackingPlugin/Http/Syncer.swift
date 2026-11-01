@@ -23,6 +23,13 @@ final class Syncer {
         self.queue = queue; self.store = store; self.config = config; self.emit = emit
         failures = Int((try? store.load("uploadWait"))?.number("failures") ?? 0)
     }
+    static func needsRefresh(_ auth: TrackingJSON, now: Double, shortLivedToken: String? = nil) -> Bool {
+        let token = auth.text("accessToken")
+        if token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+        let expires = auth.number("expires", -1)
+        if expires <= 0 { return false }
+        return now >= expires || (now >= expires - 60000 && token != shortLivedToken)
+    }
     func cancel() {
         generation += 1
         transport.cancel()
@@ -33,7 +40,11 @@ final class Syncer {
             if let completion { callbacks.append(completion) }
             return
         }
-        guard connected, let records = try? store.locations(), !records.isEmpty else { completion?(.success([])); return }
+        guard connected else { completion?(.success([])); return }
+        let records: [TrackingJSON]
+        do { records = try store.locations() }
+        catch { completion?(.failure(error)); return }
+        guard !records.isEmpty else { completion?(.success([])); return }
         let http = config.value.object("http")
         guard !http.text("url").isEmpty else { completion?(.success([])); return }
         let hasPriority = records.contains { priority.contains($0.text("event")) }
@@ -70,16 +81,15 @@ final class Syncer {
     }
     private func upload(_ records: [TrackingJSON], http: TrackingJSON, attempt: Int, refreshed: Bool) {
         let captured = generation
-        if config.secretsUnavailable {
+        let explicitAuthorization = http.object("headers").keys.contains { $0.lowercased() == "authorization" }
+        if config.secretsUnavailable && !explicitAuthorization {
             emit("authorization", ["success": false, "status": 0, "error": "Stored authorization is unavailable; set http.authorization again"])
             fail(TrackingError("HTTP_ERROR", "Stored authorization is unavailable; set http.authorization again"), http: http, status: 401, retryAfter: nil)
             return
         }
         guard UploadBackoff.authKey(http) == UploadBackoff.authKey(config.value.object("http")) else { finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained"))); automatic(); return }
-        let explicitAuthorization = http.object("headers").keys.contains { $0.lowercased() == "authorization" }
         let auth = explicitAuthorization ? [:] : http.object("authorization")
-        let expires = auth.number("expires", -1)
-        if !auth.isEmpty && !auth.text("refreshUrl").isEmpty && !refreshed && (auth.text("accessToken").isEmpty || (expires > 0 && Date().timeIntervalSince1970 * 1000 >= expires - 60000 && auth.text("accessToken") != shortLivedToken)) {
+        if !auth.isEmpty && !auth.text("refreshUrl").isEmpty && !refreshed && Self.needsRefresh(auth, now: Date().timeIntervalSince1970 * 1000, shortLivedToken: shortLivedToken) {
             refresh(http) { result in
                 guard self.generation == captured else { return }
                 switch result {
@@ -94,7 +104,7 @@ final class Syncer {
         do {
             guard let url = URL(string: http.text("url")), ["http", "https"].contains(url.scheme ?? "") else { throw TrackingError("INVALID_ARGUMENT", "Invalid upload URL") }
             var headers = http["headers"] as? [String: String] ?? [:]
-            if !auth.text("accessToken").isEmpty { headers = headers.filter { $0.key.lowercased() != "authorization" }; headers["Authorization"] = "Bearer " + auth.text("accessToken") }
+            if !auth.text("accessToken").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { headers = headers.filter { $0.key.lowercased() != "authorization" }; headers["Authorization"] = "Bearer " + auth.text("accessToken") }
             let body = try BodyBuilder.build(records, http: http)
             transport.send(url: url, method: http.text("method", "POST"), headers: headers, body: body, timeout: http.number("timeout", 60000)) { result in
                 self.queue.async {
@@ -135,7 +145,7 @@ final class Syncer {
                             return
                         }
                     }
-                    self.fail(TrackingError(status == 0 ? "NETWORK_ERROR" : "HTTP_ERROR", status == 0 ? "Network request failed" : "Upload failed: HTTP \(status)"), http: http, status: status, retryAfter: retryAfter)
+                    self.fail(TrackingError(status == 0 ? "NETWORK_ERROR" : "HTTP_ERROR", status == 0 ? "Network request failed" : "Upload failed: HTTP \(status)"), http: http, status: status, retryAfter: retryAfter, authorizationFailure: status == 401 && !auth.isEmpty)
                 }
             }
         } catch { finish(.failure(error)) }
@@ -183,11 +193,12 @@ final class Syncer {
             }
         } catch { completion(.failure(error)) }
     }
-    private func fail(_ error: Error, http: TrackingJSON, status: Int, retryAfter: Double?) {
+    private func fail(_ error: Error, http: TrackingJSON, status: Int, retryAfter: Double?, authorizationFailure: Bool? = nil) {
+        let authFailure = authorizationFailure ?? (status == 401)
         failures += 1
-        let delay = status == 401 ? 900000 : UploadBackoff.serverWait(failures, random: Double.random(in: 0..<1), retryAfter: retryAfter, minimum: tracking ? http.number("syncInterval") * 1000 : 0)
+        let delay = authFailure ? 900000 : UploadBackoff.serverWait(failures, random: Double.random(in: 0..<1), retryAfter: retryAfter, minimum: tracking ? http.number("syncInterval") * 1000 : 0)
         let at = Date().timeIntervalSince1970 * 1000 + delay
-        do { try store.save("uploadWait", ["at": at, "reason": status == 401 ? "authorization" : "server", "failures": failures, "authKey": UploadBackoff.authKey(http)]) }
+        do { try store.save("uploadWait", ["at": at, "reason": authFailure ? "authorization" : "server", "failures": failures, "authKey": UploadBackoff.authKey(http)]) }
         catch { finish(.failure(error)); return }
         schedule(at)
         finish(.failure(error))

@@ -19,6 +19,7 @@ struct UploadBackoff {
         return min(max(0, date.timeIntervalSince(now)), maximum) * 1000
     }
     static func authKey(_ http: TrackingJSON) -> String {
+        if http.object("headers").keys.contains(where: { $0.lowercased() == "authorization" }) { return "explicit-header" }
         let auth = http.object("authorization")
         return SHA256.hash(data: Data((auth.text("accessToken") + "\0" + auth.text("refreshToken")).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
     }

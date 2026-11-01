@@ -161,6 +161,25 @@ final class HTTPTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
         syncer.transport.close()
     }
+    func test401WithoutJWTUsesServerBackoff() async throws {
+        try await prepare()
+        _ = try await control("__faults", ["path": "/locations", "status": 401])
+        do { _ = try await upload(); XCTFail("Expected HTTP 401") } catch {}
+        let wait = try XCTUnwrap(store.load("uploadWait"))
+        XCTAssertEqual(wait.text("reason"), "server")
+        XCTAssertLessThan(wait.number("at") - Date().timeIntervalSince1970 * 1000, 40000)
+        syncer.transport.close()
+    }
+    func testExplicitHeaderDoesNotDependOnUnusedJWT() async throws {
+        try await prepare(["headers": ["Authorization": "Configured credential"], "authorization": ["accessToken": "old"]])
+        _ = try await control("__faults", ["path": "/locations", "status": 500, "delayMs": 300])
+        let work = Task { try await upload() }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        try config.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
+        _ = try await work.value
+        XCTAssertEqual(try store.count, 0)
+        syncer.transport.close()
+    }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
         _ = try await control("__faults", ["path": "/locations", "delayMs": 2000, "count": -1])

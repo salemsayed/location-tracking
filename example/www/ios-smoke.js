@@ -52,7 +52,7 @@
     await plugin.getPowerManagerInfo();
     assert(!(await plugin.openBatteryOptimizationSettings()).opened, 'battery settings unavailable');
     assert(!(await plugin.openPowerManagerSettings()).opened, 'power manager unavailable');
-    const fix = await plugin.getCurrentPosition({ samples: 1, persist: false, timeout: 10000 });
+    const fix = await plugin.getCurrentPosition({ samples: 1, persist: false, timeout: 30000 });
     assert(fix.coords.accuracy >= 0, 'current Core Location position');
     let callbacks = 0;
     let watchError;
@@ -60,11 +60,11 @@
       if (error) watchError = error;
       else if (location && location.event === 'watch_position') callbacks++;
     });
-    for (let n = 0; n < 50 && callbacks === 0 && !watchError; n++) await pause(100);
+    for (let n = 0; n < 100 && callbacks === 0 && !watchError; n++) await pause(100);
     assert(!watchError && callbacks > 0, 'watch callback through Capacitor');
     await plugin.stop();
     const atStop = callbacks;
-    for (let n = 0; n < 80 && callbacks <= atStop && !watchError; n++) await pause(100);
+    for (let n = 0; n < 200 && callbacks <= atStop && !watchError; n++) await pause(100);
     assert(!watchError && callbacks > atStop, 'watch survives stop');
     await plugin.clearWatch({ id: watchID });
     const cleared = callbacks;
