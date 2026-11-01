@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ios-native-${{ github.ref }}
+  group: ios-validation-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   swift:
