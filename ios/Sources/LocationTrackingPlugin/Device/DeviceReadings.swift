@@ -22,9 +22,11 @@ final class DeviceReadings {
     }
     private func refresh() {
         let device = UIDevice.current
+        let identifier = device.identifierForVendor?.uuidString, model = device.model, version = device.systemVersion
+        let level = device.batteryLevel, state = device.batteryState
         lock.lock(); defer { lock.unlock() }
-        identifier = device.identifierForVendor?.uuidString; model = device.model; version = device.systemVersion
-        level = device.batteryLevel; charging = device.batteryState == .charging || device.batteryState == .full
+        self.identifier = identifier; self.model = model; self.version = version
+        self.level = level; charging = state == .charging || state == .full
     }
     func snapshot(event: String) -> (device: TrackingJSON, battery: TrackingJSON) {
         lock.lock(); defer { lock.unlock() }
