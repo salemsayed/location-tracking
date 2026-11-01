@@ -8,6 +8,9 @@ products = pathlib.Path(sys.argv[1]) / 'Build/Products/Debug-iphonesimulator'
 apps = list(products.glob('*.app'))
 if not apps:
     raise RuntimeError('No simulator application to sign')
+nested = sorted([*products.rglob('*.framework'), *products.rglob('*.xctest')], key=lambda path: len(path.parts), reverse=True)
+for bundle in nested:
+    subprocess.run(['codesign', '--force', '--sign', '-', '--timestamp=none', str(bundle)], check=True)
 for app in apps:
     info = plistlib.loads((app / 'Info.plist').read_bytes())
     identifier = 'LTTesting.' + info['CFBundleIdentifier']
