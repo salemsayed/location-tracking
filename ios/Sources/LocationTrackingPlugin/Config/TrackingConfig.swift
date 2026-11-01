@@ -8,7 +8,8 @@ final class TrackingConfig {
     init(store: TrackingStore, secrets: SecretStore) throws {
         self.store = store
         self.secrets = secrets
-        value = Self.merge(ConfigDefaults.value, try store.load("config") ?? [:])
+        var warnings: [String] = []
+        value = try ConfigSchema.parse(try store.load("config") ?? [:], base: ConfigDefaults.value, lenient: true, warnings: &warnings)
         if (try store.load("authorization"))?.flag("configured") == true {
             var http = value.object("http")
             do {
@@ -41,10 +42,11 @@ final class TrackingConfig {
         return result
     }
     @discardableResult func apply(_ patch: TrackingJSON, reset: Bool) throws -> [String] {
-        var candidate = Self.merge(reset ? ConfigDefaults.value : value, patch)
+        var warnings: [String] = []
+        var candidate = try ConfigSchema.parse(patch, base: reset ? ConfigDefaults.value : value, warnings: &warnings)
         let clamped = ConfigValidator.clamp(candidate)
         candidate = clamped.0
-        var warnings = clamped.1
+        warnings += clamped.1
         var heartbeat = candidate.object("heartbeat")
         heartbeat["minInterval"] = max(60, heartbeat.number("minInterval", 180))
         heartbeat["maxInterval"] = max(heartbeat.number("minInterval"), heartbeat.number("maxInterval", 300))
