@@ -1,7 +1,17 @@
 import XCTest
+import CoreLocation
 
 final class PermissionUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() {
+        continueAfterFailure = false
+        if #available(iOS 16.4, *) { XCUIDevice.shared.location = XCUILocation(location: CLLocation(latitude: 24.7136, longitude: 46.6753)) }
+    }
+    override func tearDown() {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        if alert.exists { alert.buttons.firstMatch.tap() }
+        XCUIApplication().terminate()
+        if #available(iOS 16.4, *) { XCUIDevice.shared.location = nil }
+    }
     func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--ios-permission-smoke"]
@@ -27,17 +37,12 @@ final class PermissionUITests: XCTestCase {
         app.buttons["Request Position"].tap()
         XCTAssertTrue(app.staticTexts["Position error: PERMISSION_DENIED"].waitForExistence(timeout: 15))
     }
-    func testApproximatePermissionAndTemporaryPrecision() throws {
+    func testApproximatePermissionAndTemporaryPrecision() {
         let app = launch()
         app.buttons["Request Location"].tap()
         let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
         if !alert.waitForExistence(timeout: 5) && !app.staticTexts["Location request started"].exists { app.buttons["Request Location"].tap() }
         XCTAssertTrue(alert.waitForExistence(timeout: 15))
-        let predicate = NSPredicate(format: "label CONTAINS[c] 'precise'")
-        let button = alert.buttons.matching(predicate).firstMatch
-        let precise = button.exists ? button : alert.descendants(matching: .any).matching(predicate).firstMatch
-        guard precise.exists else { throw XCTSkip("This simulator does not expose the precision toggle: " + alert.debugDescription) }
-        if !precise.label.lowercased().contains("off") { precise.tap() }
         let allow = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'while using'")).firstMatch
         XCTAssertTrue(allow.exists)
         allow.tap()

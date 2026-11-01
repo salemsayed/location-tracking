@@ -3,6 +3,10 @@ require 'xcodeproj'
 project_path = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/ios/App/App.xcodeproj')
 project = Xcodeproj::Project.open(project_path)
 app = project.targets.find { |target| target.name == 'App' }
+info_path = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/ios/App/App/Info.plist')
+info = Xcodeproj::Plist.read_from_path(info_path)
+info['NSLocationDefaultAccuracyReduced'] = true
+Xcodeproj::Plist.write_to_path(info, info_path)
 tests = project.new_target(:unit_test_bundle, 'LocationTrackingPluginTests', :ios, '15.0')
 tests.product_name = 'LocationTrackingPluginTests'
 tests.product_reference.path = 'LocationTrackingPluginTests.xctest'
