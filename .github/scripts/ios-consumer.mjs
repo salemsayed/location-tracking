@@ -19,4 +19,5 @@ run('npx', ['cap', 'add', 'ios', ...(manager === 'CocoaPods' ? ['--packagemanage
 for (const file of ['AppDelegate.swift', 'SceneDelegate.swift', 'Info.plist']) {
   cpSync(join(root, 'example/ios/App/App', file), join(consumer, 'ios/App/App', file));
 }
+cpSync(join(root, 'example/ios/App/App/Base.lproj/LaunchScreen.storyboard'), join(consumer, 'ios/App/App/Base.lproj/LaunchScreen.storyboard'));
 run('npx', ['cap', 'sync', 'ios']);
