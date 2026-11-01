@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Harness unit tests
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Start mock back office
         run: |
           cd testing/e2e-kit

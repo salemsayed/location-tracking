@@ -3,10 +3,8 @@ import pathlib
 import shutil
 import subprocess
 import sys
-import threading
 import time
-
-BOOTSTRAP_FAILURE = 'Test runner never began executing tests after launching'
+from ios_ui_retry import bundle_startup_only
 
 directory = pathlib.Path(os.environ['RUNNER_TEMP'], 'ui-samples')
 directory.mkdir(exist_ok=True)
@@ -21,19 +19,9 @@ sampled = set()
 process = None
 
 
-def relay(stream, lines):
-    for line in stream:
-        sys.stdout.write(line)
-        sys.stdout.flush()
-        lines.append(line)
-
-
 def attempt(deadline):
     global process
-    lines = []
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-    reader = threading.Thread(target=relay, args=(process.stdout, lines), daemon=True)
-    reader.start()
+    process = subprocess.Popen(command)
     while process.poll() is None:
         if time.monotonic() > deadline:
             raise TimeoutError('UI test command exceeded its deadline')
@@ -55,18 +43,17 @@ def attempt(deadline):
                 except subprocess.SubprocessError:
                     print('UI stack sampling did not finish for ' + pid, flush=True)
         time.sleep(2)
-    reader.join(timeout=30)
-    return process.returncode, any(BOOTSTRAP_FAILURE in line for line in lines)
+    return process.returncode
 
 
 try:
     deadline = time.monotonic() + 2400
-    code, bootstrap = attempt(deadline)
-    if code != 0 and bootstrap:
-        print('XCTest runner was suspended before it began executing tests; relaunching the same tests once', flush=True)
-        if result_bundle is not None and result_bundle.exists():
-            shutil.move(str(result_bundle), str(result_bundle.with_name(result_bundle.stem + '-runner-bootstrap.xcresult')))
-        code, bootstrap = attempt(deadline)
+    code = attempt(deadline)
+    if code != 0 and result_bundle is not None and bundle_startup_only(result_bundle):
+        kept = result_bundle.with_name(result_bundle.stem + '-runner-bootstrap.xcresult')
+        print('The result bundle records only a test runner that never began executing tests; relaunching the same tests once and keeping ' + kept.name, flush=True)
+        shutil.move(str(result_bundle), str(kept))
+        code = attempt(deadline)
     raise SystemExit(code)
 finally:
     if process is not None and process.poll() is None:
