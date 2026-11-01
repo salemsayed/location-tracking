@@ -78,6 +78,9 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     @objc public func watchPosition(_ call: CAPPluginCall) {
         call.keepAlive = true
+        DispatchQueue.main.async { self.beginWatch(call) }
+    }
+    private func beginWatch(_ call: CAPPluginCall) {
         guard let id = call.callbackId else { call.reject("Missing callback id", "INTERNAL"); return }
         watches[id] = call
         var options: TrackingJSON = call.options as? TrackingJSON ?? [:]
@@ -102,11 +105,13 @@ public final class LocationTrackingPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc public func changePace(_ call: CAPPluginCall) { invoke("changePace", call) }
     @objc public func getCurrentPosition(_ call: CAPPluginCall) { invoke("getCurrentPosition", call) }
     @objc public func clearWatch(_ call: CAPPluginCall) {
-        if let id = call.getString("id"), let watch = watches.removeValue(forKey: id) {
-            watch.keepAlive = false
-            bridge?.releaseCall(watch)
+        DispatchQueue.main.async {
+            if let id = call.getString("id"), let watch = self.watches.removeValue(forKey: id) {
+                watch.keepAlive = false
+                self.bridge?.releaseCall(watch)
+            }
+            self.invoke("clearWatch", call)
         }
-        invoke("clearWatch", call)
     }
     @objc public func getOdometer(_ call: CAPPluginCall) { invoke("getOdometer", call) }
     @objc public func setOdometer(_ call: CAPPluginCall) { invoke("setOdometer", call) }

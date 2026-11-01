@@ -94,6 +94,21 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(requests[1].1["uuids"] as? [String], ["stable-0"])
         syncer.transport.close()
     }
+    func testManualSyncIgnoresCellularAutoRestriction() async throws {
+        try await prepare(["disableAutoSyncOnCellular": true])
+        syncer.cellular = true
+        let uploaded = try await upload()
+        XCTAssertEqual(uploaded.count, 1)
+        XCTAssertEqual(try store.count, 0)
+        syncer.transport.close()
+    }
+    func testExplicitAuthorizationHeaderWinsOverJWT() async throws {
+        try await prepare(["headers": ["authorization": "Custom configured"], "authorization": ["accessToken": "ignored", "refreshToken": "ignored", "expires": 1, "refreshUrl": base.appendingPathComponent("auth/refresh").absoluteString]])
+        _ = try await upload()
+        XCTAssertFalse(events.contains { $0.0 == "authorization" })
+        XCTAssertEqual(try store.count, 0)
+        syncer.transport.close()
+    }
     func testTimeoutDoesNotDelete() async throws {
         try await prepare(["timeout": 100])
         _ = try await control("__faults", ["path": "/locations", "delayMs": 2000, "count": -1])

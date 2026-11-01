@@ -25,10 +25,12 @@ jobs:
           cd testing/e2e-kit
           npm ci
           node src/cli/backoffice.ts --host 127.0.0.1 > "$RUNNER_TEMP/backoffice.log" 2>&1 &
+      - name: Build XCTest
+        run: xcodebuild build-for-testing -scheme BricksSoftCapacitorLocationTracking -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/ios-unit-build" CODE_SIGNING_ALLOWED=NO
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
       - name: XCTest
-        run: xcodebuild test -scheme BricksSoftCapacitorLocationTracking -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild test-without-building -scheme BricksSoftCapacitorLocationTracking -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
       - uses: actions/upload-artifact@v4
         if: always()
         with:

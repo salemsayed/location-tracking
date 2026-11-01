@@ -35,7 +35,9 @@ final class LogExport: NSObject, MFMailComposeViewControllerDelegate {
         append("\r\n")
         for (key, value) in options.object("params") {
             guard !key.contains("\r"), !key.contains("\n"), !key.contains("\"") else { throw TrackingError("INVALID_ARGUMENT", "Invalid multipart field name") }
-            let text = value as? String ?? String(decoding: try jsonData(value), as: UTF8.self)
+            let text: String
+            if let string = value as? String { text = string }
+            else { text = String(decoding: try jsonData(value), as: UTF8.self) }
             append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(text)\r\n")
         }
         append("--\(boundary)--\r\n")
