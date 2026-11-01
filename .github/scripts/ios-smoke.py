@@ -33,6 +33,9 @@ try:
     print(json.dumps(data, indent=2))
     if not data['success']:
         raise RuntimeError('WebView bridge smoke failed')
+    view = data['view']
+    if not view['visible'] or min(view['width'], view['height'], view['windowWidth'], view['windowHeight']) <= 0:
+        raise RuntimeError('WebView smoke ran without a visible, laid out window')
 finally:
     if route.poll() is None:
         route.terminate()
@@ -42,6 +45,9 @@ finally:
             route.kill()
             route.wait(timeout=5)
     gps.close()
+    webview = container / 'Library/Application Support/ios-stage1-webview.png'
+    if webview.exists():
+        pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-webview.png').write_bytes(webview.read_bytes())
     state = container / 'Library/Application Support/ios-stage1-state.json'
     if state.exists():
         pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-state.json').write_bytes(state.read_bytes())
