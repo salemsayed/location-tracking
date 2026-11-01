@@ -42,7 +42,7 @@ jobs:
           xcrun simctl bootstatus "$IOS_SIMULATOR" -b
           xcrun simctl location "$IOS_SIMULATOR" set '24.7136,46.6753'
       - name: Permission UI tests
-        run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Route and lifecycle simulator scenarios
         env:
           IOS_SCENARIO_APP: ${{ runner.temp }}/ios-unit-build/Build/Products/Debug-iphonesimulator/App.app
@@ -80,6 +80,7 @@ jobs:
             ${{ runner.temp }}/native-launch.log
             ${{ runner.temp }}/native-diagnostics
             ${{ runner.temp }}/ui-diagnostics
+            ${{ runner.temp }}/ui-samples
             ${{ runner.temp }}/app-thread-*.txt
             ${{ runner.temp }}/ios-stage2
   package:
@@ -195,7 +196,7 @@ jobs:
         run: xcrun simctl location "$IOS_SIMULATOR" set '24.7136,46.6753'
       - name: Legacy permission and notification UI tests
         if: env.LEGACY_AVAILABLE == 'true'
-        run: xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
+        run: python3 .github/scripts/ios-ui-run.py xcodebuild test -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Permissions -derivedDataPath "$RUNNER_TEMP/ios-legacy-ui-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-legacy-permissions.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Legacy route and lifecycle scenarios
         if: env.LEGACY_AVAILABLE == 'true'
         env:
@@ -230,4 +231,5 @@ jobs:
             ${{ runner.temp }}/legacy-diagnostics
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
+            ${{ runner.temp }}/ui-samples
             ${{ runner.temp }}/ios-stage2
