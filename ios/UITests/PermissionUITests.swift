@@ -4,6 +4,7 @@ final class PermissionUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     func launch() -> XCUIApplication {
         let app = XCUIApplication()
+        app.terminate()
         app.resetAuthorizationStatus(for: .location)
         app.launchArguments = ["--ios-permission-smoke"]
         app.launch()
@@ -14,7 +15,7 @@ final class PermissionUITests: XCTestCase {
     func testLocationPromptDenial() {
         let app = launch()
         app.buttons["Request Location"].tap()
-        let alert = app.alerts.firstMatch
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 15))
         let deny = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'allow' AND label CONTAINS[c] 't '")).firstMatch
         XCTAssertTrue(deny.exists)
@@ -26,10 +27,12 @@ final class PermissionUITests: XCTestCase {
     func testApproximatePermissionAndTemporaryPrecision() throws {
         let app = launch()
         app.buttons["Request Location"].tap()
-        let alert = app.alerts.firstMatch
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 15))
-        let precise = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'precise'")).firstMatch
-        guard precise.exists else { throw XCTSkip("This simulator does not expose the precision toggle") }
+        let predicate = NSPredicate(format: "label CONTAINS[c] 'precise'")
+        let button = alert.buttons.matching(predicate).firstMatch
+        let precise = button.exists ? button : alert.descendants(matching: .any).matching(predicate).firstMatch
+        guard precise.exists else { throw XCTSkip("This simulator does not expose the precision toggle: " + alert.debugDescription) }
         if !precise.label.lowercased().contains("off") { precise.tap() }
         let allow = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'while using'")).firstMatch
         XCTAssertTrue(allow.exists)

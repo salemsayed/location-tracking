@@ -28,7 +28,7 @@ for version in ['16.4', '15.5']:
         break
     destination = root / ('runtime-' + version)
     destination.mkdir()
-    if run(['xcodebuild', '-downloadPlatform', 'iOS', '-buildVersion', version, '-exportPath', str(destination)]) == 0:
+    if run(['xcodebuild', '-downloadPlatform', 'iOS', '-buildVersion', version, '-exportPath', str(destination)]) == 0 and not available():
         for image in destination.rglob('*.dmg'):
             run(['xcodebuild', '-importPlatform', str(image)])
 for runtime in available():
@@ -40,6 +40,7 @@ for runtime in available():
 else:
     with report.open('a') as output:
         output.write('\nNo bootable iOS 15/16 runtime was obtainable on this runner. See command errors above.\n')
-print(report.read_text())
+summary = '\n'.join(report.read_text().replace('\r', '\n').splitlines()[-60:])
+print(summary)
 with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-    output.write('```\n' + report.read_text() + '\n```\n')
+    output.write('```\n' + summary + '\n```\n')
