@@ -11,11 +11,17 @@ group = project.main_group.new_group('PluginTests')
 Dir.glob(File.join(Dir.pwd, 'ios/Tests/LocationTrackingPluginTests/*.swift')).each do |path|
   tests.source_build_phase.add_file_reference(group.new_file(path))
 end
-app.package_product_dependencies.each do |product|
-  tests.package_product_dependencies << product
+package = project.new(Xcodeproj::Project::Object::XCLocalSwiftPackageReference)
+package.relative_path = File.join(ENV.fetch('RUNNER_TEMP'), 'ios-consumer/node_modules/@bricks-soft/capacitor-location-tracking')
+project.root_object.package_references << package
+[app, tests].each do |target|
+  product = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+  product.package = package
+  product.product_name = 'BricksSoftCapacitorLocationTracking'
+  target.package_product_dependencies << product
   build = project.new(Xcodeproj::Project::Object::PBXBuildFile)
   build.product_ref = product
-  tests.frameworks_build_phase.files << build
+  target.frameworks_build_phase.files << build
 end
 tests.build_configurations.each do |configuration|
   configuration.build_settings.merge!({
