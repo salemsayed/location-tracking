@@ -209,7 +209,7 @@ final class TrackingCore {
         next["lastRecordAt"] = wire["recorded_at"]
         next["lastRecordElapsed"] = wire["elapsed_realtime_ms"] ?? clock().elapsed
         next["clockCheckpoint"] = clock().json
-        if let location { next["lastLocation"] = location.json }
+        if let location { next["lastLocation"] = location.json; next["lastLocationSession"] = runtime["trackingStartedAt"] ?? NSNull() }
         if wire.text("event") == "heartbeat" { next["lastHeartbeatAt"] = wire["recorded_at"] }
         return next
     }

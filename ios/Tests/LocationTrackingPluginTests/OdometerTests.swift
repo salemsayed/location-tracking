@@ -77,6 +77,15 @@ final class OdometerTests: XCTestCase {
         let cold = Odometer(); let hundred = EngineFixtures.moved(last, 100); add(hundred, to: cold)
         XCTAssertEqual(runtime.number("odometer"), 40 + Geo.distance(last, hundred), accuracy: 1e-9)
     }
+    func testSameSessionAnchorSurvivesABackwardClockCorrection() {
+        let started = 2000000.0, last = EngineFixtures.location(accuracy: 5, time: started - 600000, elapsed: 5000)
+        runtime = ["enabled": true, "trackingStartedAt": started, "lastLocation": last.json, "lastLocationSession": started, "odometer": 100.0]
+        let next = EngineFixtures.moved(last, 100); add(next)
+        XCTAssertEqual(runtime.number("odometer"), 100 + Geo.distance(last, next), accuracy: 1e-9)
+        runtime = ["enabled": true, "trackingStartedAt": started, "lastLocation": last.json, "lastLocationSession": started - 1, "odometer": 100.0]
+        add(EngineFixtures.moved(last, 100), to: Odometer())
+        XCTAssertEqual(runtime.number("odometer"), 100)
+    }
     func testInvalidRestoreAnchorsAndReset() {
         let last = EngineFixtures.location(accuracy: 5, time: 2000000)
         for (enabled, started, accuracy) in [(true, 3000000.0 as Double?, 5.0), (false, 1000000, 5), (true, nil, 5), (true, 1000000, 50)] {

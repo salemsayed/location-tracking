@@ -68,12 +68,16 @@ final class Odometer {
         if session != started {
             session = started
             anchor = nil
-            if let started, runtime.flag("enabled"), let last = TrackedLocation.from(runtime.object("lastLocation")), last.time >= started, !fix.isOlder(than: last), passes(last, threshold) { anchor = last }
+            if let started, runtime.flag("enabled"), let last = TrackedLocation.from(runtime.object("lastLocation")), Self.belongs(last, to: started, runtime: runtime), !fix.isOlder(than: last), passes(last, threshold) { anchor = last }
         }
         let previous = anchor
         anchor = fix
         return previous.map { Geo.distance($0, fix) } ?? 0
     }
     func reset(session: Double?) { anchor = nil; self.session = session }
+    static func belongs(_ last: TrackedLocation, to started: Double, runtime: TrackingJSON) -> Bool {
+        guard runtime.keys.contains("lastLocationSession") else { return last.time >= started }
+        return runtime["lastLocationSession"] as? Double == started
+    }
     private func passes(_ fix: TrackedLocation, _ threshold: Double) -> Bool { fix.accuracy <= threshold && Geo.valid(fix.latitude, fix.longitude) }
 }

@@ -220,7 +220,7 @@ final class TrackingEngine {
     private func rememberLocation(_ fix: TrackedLocation, force: Bool = false) {
         let now = core.clock().elapsed
         guard force || lastLocationPersisted == nil || now - lastLocationPersisted! >= 10000 else { return }
-        lastLocationPersisted = now; update(["lastLocation": fix.json])
+        lastLocationPersisted = now; update(["lastLocation": fix.json, "lastLocationSession": core.runtime["trackingStartedAt"] ?? NSNull()])
     }
     private func update(_ values: TrackingJSON) {
         do { try core.updateRuntime(values) }

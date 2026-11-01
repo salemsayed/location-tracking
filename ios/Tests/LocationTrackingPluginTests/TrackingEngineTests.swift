@@ -212,6 +212,22 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(locations.last ?? 0, fresh.latitude, accuracy: 0.0005)
         XCTAssertEqual(route.lastLocation?.latitude, fresh.latitude)
     }
+    func testOdometerKeepsTheFirstSegmentAfterACorrectionPersistAndReopen() throws {
+        try prepare(); let start = origin; try started(); core.engine.changePace(true)
+        advance(1000)
+        var first = EngineFixtures.moved(start, 100); first.time = now.wall; first.elapsed = now.elapsed
+        core.engine.receive([first])
+        now.wall -= 600000; now.elapsed += 1000
+        var corrected = EngineFixtures.moved(start, 200); corrected.time = now.wall; corrected.elapsed = now.elapsed
+        core.engine.receive([corrected])
+        XCTAssertLessThan(corrected.time, core.runtime["trackingStartedAt"] as? Double ?? 0)
+        let before = core.odometer
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        advance(1000, fire: false); try reopen(); core.engine.context(provider: provider, foreground: true); try core.engine.restore(); core.engine.changePace(true)
+        var next = EngineFixtures.moved(start, 300); next.time = now.wall; next.elapsed = now.elapsed
+        core.engine.receive([next])
+        XCTAssertEqual(core.odometer, before + Geo.distance(corrected, next), accuracy: 1)
+    }
     func testPersistedFixKeepsMonotonicTimeOnlyWhileTheClockCheckpointContinues() throws {
         try prepare(); let written = now.elapsed
         try core.updateRuntime(["lastLocation": EngineFixtures.location(time: now.wall, elapsed: written).json])
