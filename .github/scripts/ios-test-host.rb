@@ -71,10 +71,6 @@ project.save
 ui_scheme = Xcodeproj::XCScheme.new
 ui_scheme.add_build_target(app)
 ui_scheme.add_test_target(ui)
-ui_scheme.test_action.xml_element.attributes['selectedDebuggerIdentifier'] = ''
-ui_scheme.test_action.xml_element.attributes['selectedLauncherIdentifier'] = 'Xcode.IDEFoundation.Launcher.PosixSpawn'
-ui_scheme.launch_action.xml_element.attributes['selectedDebuggerIdentifier'] = ''
-ui_scheme.launch_action.xml_element.attributes['selectedLauncherIdentifier'] = 'Xcode.IDEFoundation.Launcher.PosixSpawn'
 ui_scheme.save_as(project_path, 'Permissions', true)
 
 scenario = project.main_group.new_group('ScenarioHost')
