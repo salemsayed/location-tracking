@@ -66,6 +66,10 @@ final class Syncer {
     }
     private func upload(_ records: [TrackingJSON], http: TrackingJSON, attempt: Int, refreshed: Bool) {
         let captured = generation
+        if config.secretsUnavailable {
+            fail(TrackingError("HTTP_ERROR", "Stored authorization is unavailable; set http.authorization again"), http: http, status: 401, retryAfter: nil)
+            return
+        }
         guard UploadBackoff.authKey(http) == UploadBackoff.authKey(config.value.object("http")) else { finish(.failure(TrackingError("HTTP_ERROR", "Authorization changed; records retained"))); automatic(); return }
         let explicitAuthorization = http.object("headers").keys.contains { $0.lowercased() == "authorization" }
         let auth = explicitAuthorization ? [:] : http.object("authorization")

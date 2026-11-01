@@ -42,4 +42,16 @@ final class ConfigTests: XCTestCase {
         XCTAssertNoThrow(try TrackingConfig(store: store, secrets: secrets))
     }
 
+    func testMissingKeychainEntryDoesNotPreventReplacement() throws {
+        let (store, config, secrets) = try config()
+        defer { try? secrets.save(nil) }
+        try config.apply(["http": ["authorization": ["accessToken": "old"]]], reset: true)
+        try secrets.save(nil)
+        let reopened = try TrackingConfig(store: store, secrets: secrets)
+        XCTAssertTrue(reopened.secretsUnavailable)
+        try reopened.apply(["http": ["authorization": ["accessToken": "new"]]], reset: false)
+        XCTAssertFalse(reopened.secretsUnavailable)
+        XCTAssertEqual(try secrets.load()?.text("accessToken"), "new")
+    }
+
 }

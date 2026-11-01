@@ -13,7 +13,7 @@ def sim(*args):
     return subprocess.check_output(['xcrun', 'simctl', *args], text=True, timeout=30).strip()
 
 subprocess.run(['xcrun', 'simctl', 'boot', identifier], check=False)
-subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, timeout=240)
+subprocess.run(['xcrun', 'simctl', 'bootstatus', identifier, '-b'], check=True, timeout=600)
 sim('install', identifier, str(app))
 sim('privacy', identifier, 'grant', 'location-always', bundle)
 sim('location', identifier, 'set', '24.7136,46.6753')

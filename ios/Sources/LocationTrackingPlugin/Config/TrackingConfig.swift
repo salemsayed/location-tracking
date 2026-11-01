@@ -2,6 +2,7 @@ import Foundation
 
 final class TrackingConfig {
     private(set) var value: TrackingJSON
+    private(set) var secretsUnavailable = false
     private let store: TrackingStore
     private let secrets: SecretStore
     init(store: TrackingStore, secrets: SecretStore) throws {
@@ -9,9 +10,14 @@ final class TrackingConfig {
         self.secrets = secrets
         value = Self.merge(ConfigDefaults.value, try store.load("config") ?? [:])
         if (try store.load("authorization"))?.flag("configured") == true {
-            guard let auth = try secrets.load() else { throw TrackingError("IO_ERROR", "Stored authorization is missing from Keychain") }
             var http = value.object("http")
-            http["authorization"] = auth
+            do {
+                guard let auth = try secrets.load() else { throw TrackingError("IO_ERROR", "Stored authorization is missing from Keychain") }
+                http["authorization"] = auth
+            } catch {
+                secretsUnavailable = true
+                http["authorization"] = TrackingJSON()
+            }
             value["http"] = http
         }
     }
@@ -69,7 +75,8 @@ final class TrackingConfig {
         let previousSecrets = value.object("http")["authorization"] as? TrackingJSON
         let nextSecrets = http["authorization"] as? TrackingJSON
         let differentSecrets = try jsonData(previousSecrets ?? [:]) != jsonData(nextSecrets ?? [:])
-        let changedSecrets = (previousSecrets == nil) != (nextSecrets == nil) || differentSecrets
+        let explicitAuthorization = patch.object("http").keys.contains("authorization") || reset
+        let changedSecrets = (previousSecrets == nil) != (nextSecrets == nil) || differentSecrets || (secretsUnavailable && explicitAuthorization)
         if changedSecrets { try secrets.save(nextSecrets) }
         do {
             try store.transaction {
@@ -84,6 +91,7 @@ final class TrackingConfig {
             throw error
         }
         value = candidate
+        if explicitAuthorization { secretsUnavailable = false }
         return warnings
     }
     var masked: TrackingJSON {
