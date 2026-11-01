@@ -163,6 +163,17 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertEqual(core.engine.heartbeatStatus().number("pendingHeartbeats"), 2)
         try core.engine.stop(); XCTAssertEqual(core.engine.heartbeatStatus().text("strategy"), "disabled")
     }
+    func testCoarseBackendFallbackIsUsedOnlyWithoutAVettedFix() throws {
+        try prepare()
+        var coarse = EngineFixtures.moved(origin, 1000); coarse.accuracy = 500
+        core.engine.offerLastLocation(coarse); try core.engine.start(); core.engine.initialFix(nil)
+        XCTAssertEqual(records.first?.object("coords").number("accuracy"), 500)
+        try core.engine.stop(); records = []; advance(2000)
+        try core.engine.start(); let vetted = origin; core.engine.initialFix(vetted)
+        coarse.time += 10000; core.engine.offerLastLocation(coarse)
+        try core.engine.stop()
+        XCTAssertEqual(records.last?.object("coords").number("latitude"), vetted.latitude)
+    }
     func testRetryGrowsAndStopCancelsItAndOdometerResetKeepsSession() throws {
         try prepare(); try started()
         core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test")); core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test"))

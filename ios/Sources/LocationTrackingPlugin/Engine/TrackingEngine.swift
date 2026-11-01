@@ -12,6 +12,7 @@ final class TrackingEngine {
     private let processor = LocationProcessor()
     let odometer = Odometer()
     private var lastFix: TrackedLocation?
+    private var backendLocation: TrackedLocation?
     private var lastRecorded: TrackedLocation?
     private var motionRecorded = false
     private var lastLocationPersisted: Double?
@@ -33,8 +34,11 @@ final class TrackingEngine {
     private var config: TrackingJSON { core.config.value }
     private var geo: TrackingJSON { config.object("geolocation") }
     private var bestKnown: TrackedLocation? {
-        [lastFix, TrackedLocation.from(core.runtime.object("lastLocation"))].compactMap { $0 }.max { $0.time < $1.time }
+        let threshold = geo.object("filter").number("trackingAccuracyThreshold", 100)
+        let vetted = backendLocation.flatMap { threshold <= 0 || $0.accuracyMeters <= threshold ? $0 : nil }
+        return [lastFix, TrackedLocation.from(core.runtime.object("lastLocation")), vetted].compactMap { $0 }.max { $0.time < $1.time } ?? backendLocation
     }
+    func offerLastLocation(_ location: TrackedLocation?) { backendLocation = location }
     func context(provider: TrackingJSON, foreground: Bool) { self.provider = provider; self.foreground = foreground }
     func restore() throws {
         guard core.runtime.flag("enabled") else { applyProfile(force: true); notifier.cancel(); return }
@@ -138,6 +142,7 @@ final class TrackingEngine {
     func receive(_ batch: [TrackedLocation]) {
         guard running else { return }
         registrationFailures = 0
+        if let newest = batch.max(by: { $0.time < $1.time }) { backendLocation = newest }
         if !batch.isEmpty { touchCheckIn() }
         for raw in batch {
             guard running else { return }

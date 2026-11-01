@@ -20,6 +20,11 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
     var error: ((TrackingError) -> Void)?
     var activity: ((ActivitySample) -> Void)?
     var authorizationChanged: (() -> Void)?
+    var lastLocation: TrackedLocation? {
+        precondition(Thread.isMainThread)
+        guard let fix = manager.location, fix.horizontalAccuracy >= 0, CLLocationCoordinate2DIsValid(fix.coordinate) else { return nil }
+        return TrackedLocation(fix)
+    }
     override init() {
         super.init()
         manager.delegate = self; relaunch.delegate = self

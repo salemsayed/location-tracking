@@ -69,8 +69,9 @@ public enum LocationTrackingNative {
         queue.async { initialize(permissions: permissions, positions: positions, route: route, provider: provider, foreground: foreground) }
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             let provider = permissions.provider
+            let lastLocation = route.lastLocation
             queue.async {
-                if case .success(let core) = result { core.engine.active(provider: provider, foreground: true); core.syncer.automatic() }
+                if case .success(let core) = result { core.engine.offerLastLocation(lastLocation); core.engine.active(provider: provider, foreground: true); core.syncer.automatic() }
             }
         })
         lifecycleObservers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in

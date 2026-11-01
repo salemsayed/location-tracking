@@ -71,8 +71,9 @@ final class TrackingCore {
                 DispatchQueue.main.async {
                     let provider = self.permissions.provider
                     let foreground = UIApplication.shared.applicationState != .background
+                    let lastLocation = self.routeSource?.lastLocation
                     self.queue.async {
-                        do { self.engine.context(provider: provider, foreground: foreground); try self.engine.start(); callback(.success(self.state())) }
+                        do { self.engine.context(provider: provider, foreground: foreground); self.engine.offerLastLocation(lastLocation); try self.engine.start(); callback(.success(self.state())) }
                         catch { callback(.failure(error)) }
                     }
                 }
