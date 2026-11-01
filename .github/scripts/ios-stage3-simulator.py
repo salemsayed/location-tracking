@@ -7,6 +7,7 @@ import signal
 import subprocess
 import time
 import uuid
+from datetime import datetime
 from ios_simulator_launch import launch_and_wait, simctl_output
 
 identifier = os.environ['IOS_SIMULATOR']
@@ -16,7 +17,6 @@ report = root / 'ios-stage3'
 report.mkdir(exist_ok=True)
 bundle = 'com.brickssoft.locationtracking.example'
 checks = []
-route = None
 latitude = 24.7136
 metres_per_degree = 111320.0
 
@@ -101,16 +101,12 @@ def wait_hits(expected, description, timeout=240, since=None):
         (report / (description.replace(' ', '-') + '.json')).write_text(json.dumps(geofence_records(), indent=2))
 
 
-def stop_route():
-    global route
-    if route and route.poll() is None:
-        route.terminate()
-        try:
-            route.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            route.kill()
-            route.wait(timeout=5)
-    route = None
+def drive(origin, destination):
+    metres = abs(destination - origin) * metres_per_degree * math.cos(math.radians(latitude))
+    with (report / 'route.log').open('a') as gps:
+        subprocess.run(['xcrun', 'simctl', 'location', identifier, 'start', '--speed=25', '--interval=1', '%f,%f' % (latitude, origin), '%f,%f' % (latitude, destination)], stdout=gps, stderr=subprocess.STDOUT, check=True, timeout=120)
+    time.sleep(metres / 25 + 5)
+    sim('location', identifier, 'set', '%f,%f' % (latitude, destination))
 
 
 try:
@@ -147,18 +143,19 @@ try:
         state = call('startGeofences')
         check(state['enabled'] and state['trackingMode'] == 'geofences', 'geofence mode starts with three stored geofences')
         time.sleep(10)
-        gps = (report / 'route.log').open('w')
-        route = subprocess.Popen(['xcrun', 'simctl', 'location', identifier, 'start', '--speed=25', '--interval=1', '%f,%f' % (latitude, start), '%f,%f' % (latitude, finish)], stdout=gps, stderr=subprocess.STDOUT)
-        seen = wait_hits(['circle:ENTER', 'circle:EXIT'], 'circle entered and left on the simulated route')
-        check(seen.index('circle:ENTER') < seen.index('circle:EXIT'), 'circle ENTER then EXIT come from the CLMonitor condition')
-        seen = wait_hits(['polygon:ENTER', 'polygon:EXIT'], 'polygon entered and left by hit-testing fixes')
-        check(seen.index('polygon:ENTER') < seen.index('polygon:EXIT'), 'polygon ENTER then EXIT come from fixes inside its enclosing circle')
-        seen = wait_hits(['dwell:ENTER'], 'dwell geofence entered at the end of the route')
-        check('dwell:DWELL' not in seen, 'DWELL waits for the loitering delay')
-        stop_route(); gps.close()
-        sim('location', identifier, 'set', '%f,%f' % (latitude, finish))
+        drive(start, circle)
+        seen = wait_hits(['circle:ENTER'], 'circle entered on the simulated route')
+        check('circle:EXIT' not in seen, 'circle ENTER comes from the CLMonitor condition')
+        drive(circle, square)
+        seen = wait_hits(['circle:EXIT', 'polygon:ENTER'], 'circle left and polygon entered on the simulated route')
+        check(seen.index('circle:ENTER') < seen.index('circle:EXIT') and 'polygon:EXIT' not in seen, 'circle EXIT follows and the polygon ENTER comes from fixes inside its enclosing circle')
+        drive(square, finish)
+        seen = wait_hits(['polygon:EXIT', 'dwell:ENTER'], 'polygon left and dwell geofence entered on the simulated route')
+        check(seen.index('polygon:ENTER') < seen.index('polygon:EXIT'), 'polygon EXIT follows its ENTER')
         seen = wait_hits(['dwell:DWELL'], 'dwell synthesized after the loitering delay', timeout=90)
-        check(seen.count('dwell:DWELL') == 1 and seen.index('dwell:ENTER') < seen.index('dwell:DWELL'), 'DWELL is synthesized once after the loitering delay while inside')
+        times = {(record['geofence']['identifier'], record['geofence']['action']): datetime.fromisoformat(record['recorded_at'].replace('Z', '+00:00')) for record in geofence_records()}
+        waited = (times[('dwell', 'DWELL')] - times[('dwell', 'ENTER')]).total_seconds()
+        check(seen.count('dwell:DWELL') == 1 and waited >= 9.5, 'DWELL is synthesized once, %.1f s after ENTER, with a 10 s loitering delay' % waited)
         before = [record['recorded_at'] for record in geofence_records()]
         os.kill(pid, signal.SIGKILL)
         time.sleep(2)
@@ -176,7 +173,6 @@ try:
         call('removeGeofences')
     (report / 'report.json').write_text(json.dumps({'success': True, 'checks': checks}, indent=2))
 finally:
-    stop_route()
     try:
         sim('io', identifier, 'screenshot', str(report / 'final.png'), timeout=15)
     except subprocess.SubprocessError:
