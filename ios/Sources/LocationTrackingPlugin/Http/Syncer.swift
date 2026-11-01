@@ -133,7 +133,7 @@ final class Syncer {
     }
     private func refresh(_ http: TrackingJSON, completion: @escaping (Result<TrackingJSON, Error>) -> Void) {
         let auth = http.object("authorization")
-        guard let url = URL(string: auth.text("refreshUrl")), ["http", "https"].contains(url.scheme ?? ""), !auth.text("refreshToken").isEmpty else { completion(.failure(TrackingError("HTTP_ERROR", "Token refresh is not configured"))); return }
+        guard let url = URL(string: auth.text("refreshUrl")), ["http", "https"].contains(url.scheme ?? "") else { completion(.failure(TrackingError("HTTP_ERROR", "Token refresh is not configured"))); return }
         var payload = auth.object("refreshPayload")
         for (key, value) in payload { if let text = value as? String { payload[key] = text.replacingOccurrences(of: "{refreshToken}", with: auth.text("refreshToken")) } }
         do {

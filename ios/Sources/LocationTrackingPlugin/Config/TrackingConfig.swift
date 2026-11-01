@@ -8,7 +8,7 @@ final class TrackingConfig {
         self.store = store
         self.secrets = secrets
         value = Self.merge(ConfigDefaults.value, try store.load("config") ?? [:])
-        if let auth = try secrets.load() {
+        if (try store.load("authorization"))?.flag("configured") == true, let auth = try secrets.load() {
             var http = value.object("http")
             http["authorization"] = auth
             value["http"] = http
@@ -65,12 +65,20 @@ final class TrackingConfig {
         var persistedHttp = http
         persistedHttp["authorization"] = NSNull()
         persisted["http"] = persistedHttp
-        let previousSecrets = try secrets.load()
-        try secrets.save(http["authorization"] as? TrackingJSON)
-        do { try store.save("config", persisted) }
-        catch {
-            do { try secrets.save(previousSecrets) }
-            catch { throw TrackingError("IO_ERROR", "Configuration write and authorization rollback failed") }
+        let previousSecrets = value.object("http")["authorization"] as? TrackingJSON
+        let nextSecrets = http["authorization"] as? TrackingJSON
+        let changedSecrets = try jsonData(previousSecrets ?? [:]) != jsonData(nextSecrets ?? [:])
+        if changedSecrets { try secrets.save(nextSecrets) }
+        do {
+            try store.transaction {
+                try store.save("config", persisted)
+                try store.save("authorization", ["configured": nextSecrets != nil])
+            }
+        } catch {
+            if changedSecrets {
+                do { try secrets.save(previousSecrets) }
+                catch { throw TrackingError("IO_ERROR", "Configuration write and authorization rollback failed") }
+            }
             throw error
         }
         value = candidate

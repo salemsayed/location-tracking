@@ -14,7 +14,7 @@ final class SecretStore {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = result as? Data else { throw TrackingError("IO_ERROR", "Keychain authorization is unavailable") }
+        guard status == errSecSuccess, let data = result as? Data else { throw TrackingError("IO_ERROR", "Keychain authorization is unavailable (status \(status))") }
         return try jsonObject(data)
     }
     func save(_ value: TrackingJSON?) throws {

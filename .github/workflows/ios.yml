@@ -27,6 +27,8 @@ jobs:
           node src/cli/backoffice.ts --host 127.0.0.1 > "$RUNNER_TEMP/backoffice.log" 2>&1 &
       - name: Build XCTest
         run: xcodebuild build-for-testing -scheme BricksSoftCapacitorLocationTracking -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/ios-unit-build" CODE_SIGNING_ALLOWED=NO
+      - name: Sign simulator XCTest host
+        run: python3 .github/scripts/ios-sign-simulator.py "$RUNNER_TEMP/ios-unit-build"
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
       - name: XCTest
@@ -77,6 +79,8 @@ jobs:
           else
             xcodebuild -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=NO
           fi
+      - name: Sign simulator consumer
+        run: python3 .github/scripts/ios-sign-simulator.py "$RUNNER_TEMP/ios-simulator"
       - name: WebView bridge and position smoke
         run: python3 .github/scripts/ios-smoke.py
       - uses: actions/upload-artifact@v4
