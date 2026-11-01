@@ -1,0 +1,173 @@
+import XCTest
+@testable import LocationTrackingPlugin
+
+@MainActor
+final class TrackingEngineTests: XCTestCase {
+    var now = TrackingInstant(wall: 1790417730456, elapsed: 86400123)
+    var core: TrackingCore!
+    var records: [TrackingJSON] = []
+    var events: [(String, TrackingJSON)] = []
+    var url: URL!
+    let provider: TrackingJSON = ["permission": "when_in_use", "enabled": true, "accuracy": "precise", "backend": "corelocation"]
+    var origin: TrackedLocation { EngineFixtures.location(accuracy: 5, speed: 0, time: now.wall) }
+    func prepare(_ patch: TrackingJSON = [:]) throws {
+        url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("engine.sqlite")
+        try reopen()
+        try core.config.apply(["http": ["autoSync": false], "heartbeat": ["enabled": false], "geolocation": ["filter": ["maxImpliedSpeed": 0]]], reset: true)
+        if !patch.isEmpty { try core.config.apply(patch, reset: false) }
+        core.engine.context(provider: provider, foreground: true)
+    }
+    func reopen() throws {
+        core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { [weak self] in self?.events.append(($0, $1)) }, record: { [weak self] in self?.records.append($0) }, url: url, clock: { [unowned self] in self.now }, automaticTimers: false)
+    }
+    override func tearDown() { core?.engine.timers.cancelAll(); core?.syncer.close(); core = nil }
+    func advance(_ milliseconds: Double, fire: Bool = true) { now.wall += milliseconds; now.elapsed += milliseconds; if fire { core.engine.timers.fireDue() } }
+    func started() throws { try core.engine.start(); core.engine.initialFix(origin) }
+    func sequence() -> [String] { records.map { $0.text("event") + ($0.text("reason").isEmpty ? ($0.text("event") == "motionchange" ? ":\($0.flag("is_moving"))" : "") : ":" + $0.text("reason")) } }
+    func testStartMovingStationaryStopExactAndroidSequence() throws {
+        try prepare(); let start = origin; try started()
+        XCTAssertTrue(records[0]["coords"] is NSNull)
+        let first = EngineFixtures.moved(start, 100); now.wall = first.time; now.elapsed += 1000
+        core.engine.receive([first]); let second = EngineFixtures.moved(first, 50); now.wall = second.time; now.elapsed += 1000
+        core.engine.receive([second]); let third = EngineFixtures.moved(second, 5); now.wall = third.time; now.elapsed += 1000
+        core.engine.receive([third]); core.engine.activity(ActivitySample(type: "in_vehicle", confidence: 90))
+        advance(300000 - 1); XCTAssertTrue(core.state().flag("isMoving"))
+        advance(1); XCTAssertFalse(core.state().flag("isMoving"))
+        try core.engine.stop()
+        XCTAssertEqual(sequence(), ["tracking_start:start", "motionchange:false", "motionchange:true", "location", "motionchange:false", "tracking_stop:stop"])
+        XCTAssertEqual(events.filter { $0.0 == "enabledchange" }.map { $0.1.flag("enabled") }, [true, false])
+        XCTAssertEqual(events.filter { $0.0 == "motionchange" }.map { $0.1.flag("isMoving") }, [false, true, false])
+        XCTAssertEqual(events.filter { $0.0 == "activitychange" }.first?.1.text("activity"), "in_vehicle")
+        XCTAssertEqual(try core.store.count, 6)
+        let count = records.count; core.engine.receive([EngineFixtures.moved(third, 500)]); advance(600000)
+        XCTAssertEqual(records.count, count)
+    }
+    func testPermissionFailureIdempotencyAndChangePaceWhileStopped() throws {
+        try prepare(); core.engine.context(provider: ["permission": "denied"], foreground: true)
+        XCTAssertThrowsError(try core.engine.start()) { XCTAssertEqual(($0 as? TrackingError)?.code, "PERMISSION_DENIED") }
+        XCTAssertTrue(records.isEmpty); XCTAssertFalse(core.state().flag("enabled"))
+        core.engine.changePace(true); XCTAssertTrue(records.isEmpty)
+        core.engine.context(provider: provider, foreground: true)
+        try core.engine.start(); try core.engine.start(); XCTAssertEqual(sequence(), ["tracking_start:start"])
+        core.engine.changePace(true); XCTAssertTrue(core.state().flag("isMoving"))
+        core.engine.changePace(false); XCTAssertFalse(core.state().flag("isMoving"))
+    }
+    func testStationaryFixesAreNotRecordedOrCountedAndBadFixesAreIgnored() throws {
+        try prepare(); let start = origin; try started()
+        let near = EngineFixtures.moved(start, 20)
+        core.engine.receive([near]); XCTAssertEqual(records.count, 2); XCTAssertEqual(core.odometer, 0)
+        var bad = EngineFixtures.moved(start, 1000); bad.accuracy = 500
+        core.engine.receive([bad]); XCTAssertEqual(records.count, 2); XCTAssertFalse(core.state().flag("isMoving"))
+    }
+    func testOverdueStopTimerMotionInBatchWins() throws {
+        try prepare(); let start = origin; try started(); core.engine.changePace(true)
+        advance(300001, fire: false)
+        var moved = EngineFixtures.moved(start, 100); moved.time = now.wall
+        core.engine.receive([start, moved])
+        XCTAssertTrue(core.state().flag("isMoving"))
+        advance(299999); XCTAssertTrue(core.state().flag("isMoving"))
+        advance(1); XCTAssertFalse(core.state().flag("isMoving"))
+    }
+    func testDisableStopDetectionAndStopOnStationary() throws {
+        try prepare(["activity": ["disableStopDetection": true]])
+        try started(); core.engine.changePace(true); advance(600000)
+        XCTAssertTrue(core.state().flag("isMoving"))
+        try core.config.apply(["activity": ["disableStopDetection": false], "geolocation": ["stopOnStationary": true]], reset: false)
+        core.engine.configChanged(); advance(300000)
+        XCTAssertFalse(core.state().flag("enabled")); XCTAssertEqual(core.state().text("lastStopReason"), "stop_on_stationary")
+    }
+    func testLiveMotionTriggerAndActivityConfidence() throws {
+        try prepare(["activity": ["motionTriggerDelay": 30000, "minimumActivityRecognitionConfidence": 67]])
+        try started()
+        core.engine.activity(ActivitySample(type: "walking", confidence: 66)); advance(30000); XCTAssertFalse(core.state().flag("isMoving"))
+        core.engine.activity(ActivitySample(type: "walking", confidence: 100)); advance(29999); XCTAssertFalse(core.state().flag("isMoving"))
+        advance(1); XCTAssertTrue(core.state().flag("isMoving"))
+        XCTAssertEqual(core.runtime.object("activity").number("confidence"), 100)
+    }
+    func testRestoreBeforeReadyKeepsOriginalDeadlineAndStartsOnce() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
+        try started(); let startedAt = core.runtime.number("trackingStartedAt")
+        advance(20 * 60000, fire: false); core.engine.timers.cancelAll(); core.syncer.close(); core = nil
+        records = []; try reopen(); core.engine.context(provider: provider, foreground: true)
+        try core.engine.restore(); try core.engine.restore()
+        XCTAssertFalse(core.ready); XCTAssertEqual(sequence(), ["tracking_start:restore"])
+        XCTAssertEqual(core.runtime.number("trackingStartedAt"), startedAt)
+        advance(40 * 60000); XCTAssertEqual(sequence().last, "tracking_stop:stop_after_elapsed")
+    }
+    func testExpiredRestoreStartsNothingAndRecordsSingleStop() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
+        try started(); advance(61 * 60000, fire: false)
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        try reopen(); core.engine.context(provider: provider, foreground: true)
+        try core.engine.restore(); try core.engine.restore()
+        XCTAssertEqual(sequence(), ["tracking_stop:stop_after_elapsed"]); XCTAssertFalse(core.engine.running)
+    }
+    func testRebootAndWallClockChangesUseDeadlineContract() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
+        try started(); now.wall -= 3 * 3600000
+        advance(59 * 60000); XCTAssertTrue(core.state().flag("enabled"))
+        advance(60000); XCTAssertEqual(core.state().text("lastStopReason"), "stop_after_elapsed")
+        try core.engine.start(); advance(61 * 60000, fire: false)
+        now.elapsed = 60000
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        try reopen(); core.engine.context(provider: provider, foreground: true); try core.engine.restore()
+        XCTAssertEqual(sequence(), ["tracking_stop:stop_after_elapsed"])
+    }
+    func testModeSwitchStartsNewWindowAndPreservesPublicGeofenceGate() throws {
+        try prepare(["geolocation": ["stopAfterElapsedMinutes": 60]])
+        try started(); core.engine.changePace(true); advance(20 * 60000, fire: false)
+        try core.engine.start(mode: "geofences")
+        XCTAssertEqual(sequence().suffix(2), ["motionchange:false", "tracking_start:start_geofences"])
+        advance(40 * 60000); XCTAssertTrue(core.state().flag("enabled"))
+        advance(20 * 60000); XCTAssertFalse(core.state().flag("enabled"))
+        core.call("startGeofences", [:], native: true) { result in XCTAssertEqual((result.failure as? TrackingError)?.code, "UNAVAILABLE") }
+    }
+    func testWhenInUseBackgroundRestoreWaitsForActiveAndRevokedPermissionStops() throws {
+        try prepare(); try started(); core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        try reopen(); core.engine.context(provider: provider, foreground: false); try core.engine.restore()
+        XCTAssertTrue(core.state().flag("enabled")); XCTAssertFalse(core.engine.running); XCTAssertTrue(records.isEmpty)
+        core.engine.active(provider: provider, foreground: true)
+        XCTAssertEqual(sequence(), ["tracking_start:restore"])
+        core.engine.providerChanged(["enabled": true, "permission": "denied"])
+        XCTAssertEqual(core.state().text("lastStopReason"), "permission_denied")
+    }
+    func testTerminationPolicyAndOSKillWithoutCallback() throws {
+        try prepare(["app": ["stopOnTerminate": false]])
+        try started(); core.engine.terminate(); XCTAssertTrue(core.state().flag("enabled"))
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil; records = []
+        try reopen(); core.engine.context(provider: provider, foreground: true); try core.engine.restore()
+        XCTAssertEqual(sequence(), ["tracking_start:restore"])
+        try core.config.apply(["app": ["stopOnTerminate": true]], reset: false)
+        core.engine.terminate(); XCTAssertEqual(sequence().last, "tracking_stop:terminate")
+        XCTAssertFalse(try core.store.load("runtime")!.flag("enabled"))
+    }
+    func testHeartbeatNoBackfillMetadataAndLiveRecordsDelayIt() throws {
+        try prepare(["heartbeat": ["enabled": true]])
+        try started(); advance(5000, fire: false)
+        core.deliver(core.makeRecord(event: "current_position", fix: origin), location: origin)
+        advance(175000); XCTAssertFalse(records.contains { $0.text("event") == "heartbeat" })
+        advance(5000); XCTAssertEqual(records.filter { $0.text("event") == "heartbeat" }.count, 1)
+        let first = try XCTUnwrap(records.last)
+        XCTAssertEqual(first.object("heartbeat").text("strategy"), "timer")
+        XCTAssertEqual(first.object("heartbeat").text("next_at"), core.engine.heartbeatStatus().text("nextHeartbeatAt"))
+        XCTAssertEqual(events.filter { $0.0 == "heartbeat" }.count, 1)
+        advance(900000, fire: false); core.engine.heartbeat(); core.engine.heartbeat()
+        XCTAssertEqual(records.filter { $0.text("event") == "heartbeat" }.count, 2)
+        XCTAssertEqual(core.engine.heartbeatStatus().number("pendingHeartbeats"), 2)
+        try core.engine.stop(); XCTAssertEqual(core.engine.heartbeatStatus().text("strategy"), "disabled")
+    }
+    func testRetryGrowsAndStopCancelsItAndOdometerResetKeepsSession() throws {
+        try prepare(); try started()
+        core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test")); core.engine.registrationFailed(TrackingError("UNAVAILABLE", "test"))
+        XCTAssertEqual(events.filter { $0.0 == "locationerror" }.map { $0.1.number("retryInMs") }, [10000, 20000])
+        core.call("setOdometer", ["odometer": 250], native: true) { XCTAssertNoThrow(try $0.get()) }
+        XCTAssertEqual(core.odometer, 250)
+        core.call("resetOdometer", [:], native: true) { XCTAssertNoThrow(try $0.get()) }
+        XCTAssertEqual(core.odometer, 0)
+        try core.engine.stop(); let count = records.count; advance(60000); XCTAssertEqual(records.count, count)
+    }
+}
+
+private extension Result {
+    var failure: Error? { if case .failure(let error) = self { return error }; return nil }
+}
