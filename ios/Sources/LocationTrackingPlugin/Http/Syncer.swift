@@ -111,7 +111,10 @@ final class Syncer {
             let chunk = priorityOnly ? Array(try store.locations().filter { priority.contains($0.text("event")) && !rejectedPriority.contains($0.text("uuid")) }.prefix(size)) : try store.locations(limit: size)
             if chunk.isEmpty {
                 if let failure = passFailure { fail(failure.0, http: failure.1, status: failure.2, retryAfter: failure.3, authorizationFailure: false) }
-                else { failures = 0; try store.save("uploadWait", [:]); finish(.success(uploaded)) }
+                else {
+                    if !priorityOnly { failures = 0; try store.save("uploadWait", [:]) }
+                    finish(.success(uploaded))
+                }
                 return
             }
             upload(chunk, http: http, attempt: 0, refreshed: false)

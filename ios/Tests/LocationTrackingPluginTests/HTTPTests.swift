@@ -444,4 +444,22 @@ final class HTTPTests: XCTestCase {
         XCTAssertEqual(try store.count, 1)
     }
 
+    func testPriorityOnlyPassPreservesNormalBackoff() async throws {
+        for reason in ["authorization", "server"] {
+            try await prepare(["autoSync": true, "disableAutoSyncOnCellular": true, "authorization": ["accessToken": "same"]])
+            try store.insert(["uuid": "priority", "event": "heartbeat", "recorded_at": iso()])
+            try store.save("uploadWait", ["at": Date().addingTimeInterval(300).timeIntervalSince1970 * 1000, "reason": reason, "authKey": UploadBackoff.authKey(config.value.object("http"))])
+            syncer.cellular = true
+            let result: Result<[TrackingJSON], Error> = await withCheckedContinuation { continuation in syncer.automatic { continuation.resume(returning: $0) } }
+            XCTAssertEqual(try result.get().map { $0.text("uuid") }, ["priority"])
+            XCTAssertEqual(try store.load("uploadWait")?.text("reason"), reason)
+            syncer.cellular = false
+            syncer.automatic()
+            try await Task.sleep(nanoseconds: 100_000_000)
+            XCTAssertEqual(try store.count, 1)
+            XCTAssertEqual(events.filter { $0.0 == "http" }.count, 1)
+            syncer.close()
+        }
+    }
+
 }
