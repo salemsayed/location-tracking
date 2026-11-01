@@ -66,7 +66,7 @@ final class Permissions: NSObject, CLLocationManagerDelegate {
         case "location" where manager.authorizationStatus == .notDetermined:
             authorizationDone = next
             manager.requestWhenInUseAuthorization()
-        case "backgroundLocation" where manager.authorizationStatus == .authorizedWhenInUse && !UserDefaults.standard.bool(forKey: "LT.alwaysAsked"):
+        case "backgroundLocation" where (manager.authorizationStatus == .notDetermined || manager.authorizationStatus == .authorizedWhenInUse) && !UserDefaults.standard.bool(forKey: "LT.alwaysAsked"):
             UserDefaults.standard.set(true, forKey: "LT.alwaysAsked")
             awaitingAlways = true
             authorizationDone = next
