@@ -14,7 +14,11 @@ try:
     while process.poll() is None:
         if time.monotonic() > deadline:
             raise TimeoutError('UI test command exceeded 20 minutes')
-        listing = subprocess.check_output(['ps', '-axo', 'pid=,comm='], text=True, timeout=10)
+        try:
+            listing = subprocess.check_output(['ps', '-axo', 'pid=,comm='], text=True, timeout=10)
+        except subprocess.SubprocessError:
+            print('UI process inspection did not finish; continuing the test command', flush=True)
+            listing = ''
         for line in listing.splitlines():
             fields = line.strip().split(maxsplit=1)
             if len(fields) != 2 or not fields[1].endswith('/App.app/App'):
@@ -23,7 +27,10 @@ try:
             first = seen.setdefault(pid, time.monotonic())
             if pid not in sampled and time.monotonic() - first > 20:
                 sampled.add(pid)
-                subprocess.run(['sample', pid, '2', '-file', str(directory / (pid + '.txt'))], check=False, timeout=20)
+                try:
+                    subprocess.run(['sample', pid, '2', '-file', str(directory / (pid + '.txt'))], check=False, timeout=20)
+                except subprocess.SubprocessError:
+                    print('UI stack sampling did not finish for ' + pid, flush=True)
         time.sleep(2)
     raise SystemExit(process.returncode)
 finally:

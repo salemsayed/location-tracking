@@ -11,6 +11,13 @@ runtime = max(runtimes, key=lambda name: tuple(int(part) for part in re.findall(
 phones = [device for device in runtimes[runtime] if 'iPhone' in device['name']]
 preferred = next((device for device in phones if device['state'] == 'Booted'), phones[0])
 identifier = preferred['udid']
+try:
+    result = subprocess.run(['xcrun', 'simctl', 'create', 'LT Current', 'com.apple.CoreSimulator.SimDeviceType.iPhone-13', runtime], capture_output=True, text=True, timeout=60)
+    if result.returncode == 0:
+        identifier = result.stdout.strip()
+        preferred = {'name': 'LT Current (iPhone 13)', 'udid': identifier}
+except subprocess.TimeoutExpired:
+    print('Current runtime device creation timed out; using the available simulator')
 print(json.dumps({'device': preferred['name'], 'runtime': runtime}))
 with open(os.environ['GITHUB_ENV'], 'a') as output:
     output.write(f'IOS_SIMULATOR={identifier}\n')
