@@ -29,17 +29,18 @@ jobs:
         run: |
           node .github/scripts/ios-consumer.mjs SPM
           ruby .github/scripts/ios-test-host.rb
+          ruby .github/scripts/ios-simulator-signing.rb
       - name: Build XCTest
-        run: xcodebuild build-for-testing -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/ios-unit-build" CODE_SIGNING_ALLOWED=NO
-      - name: Sign simulator XCTest host
-        run: python3 .github/scripts/ios-sign-simulator.py "$RUNNER_TEMP/ios-unit-build"
+        run: xcodebuild build-for-testing -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/ios-unit-build" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
       - name: XCTest
-        run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=NO
+        run: xcodebuild test-without-building -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 -project "$RUNNER_TEMP/ios-consumer/ios/App/App.xcodeproj" -scheme Stage1 -derivedDataPath "$RUNNER_TEMP/ios-unit-build" -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -resultBundlePath "$RUNNER_TEMP/ios-tests.xcresult" CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
       - name: Native launch diagnostics
         if: failure()
-        run: xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1
+        run: |
+          xcrun xcresulttool export diagnostics --path "$RUNNER_TEMP/ios-tests.xcresult" --output-path "$RUNNER_TEMP/native-diagnostics"
+          xcrun simctl spawn "$IOS_SIMULATOR" log show --last 10m --style compact --predicate 'process == "App" OR process == "amfid" OR process == "runningboardd"' > "$RUNNER_TEMP/native-launch.log" 2>&1
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -48,6 +49,7 @@ jobs:
             ${{ runner.temp }}/ios-tests.xcresult
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
+            ${{ runner.temp }}/native-diagnostics
   package:
     runs-on: macos-26
     timeout-minutes: 45
@@ -79,16 +81,16 @@ jobs:
           zip -qry "$RUNNER_TEMP/location-tracking-example-unsigned.ipa" Payload
       - name: Select simulator
         run: python3 .github/scripts/ios-simulator.py
+      - name: Prepare simulator signing
+        run: ruby .github/scripts/ios-simulator-signing.rb
       - name: Build simulator consumer
         run: |
           cd "$RUNNER_TEMP/ios-consumer/ios/App"
           if [ -d App.xcworkspace ]; then
-            xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=NO
+            xcodebuild -workspace App.xcworkspace -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
           else
-            xcodebuild -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=NO
+            xcodebuild -project App.xcodeproj -scheme App -configuration Debug -sdk iphonesimulator -destination "platform=iOS Simulator,id=$IOS_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ios-simulator" build CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-
           fi
-      - name: Sign simulator consumer
-        run: python3 .github/scripts/ios-sign-simulator.py "$RUNNER_TEMP/ios-simulator"
       - name: WebView bridge and position smoke
         run: python3 .github/scripts/ios-smoke.py
       - uses: actions/upload-artifact@v4
