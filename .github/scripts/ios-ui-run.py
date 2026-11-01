@@ -6,6 +6,10 @@ import time
 
 directory = pathlib.Path(os.environ['RUNNER_TEMP'], 'ui-samples')
 directory.mkdir(exist_ok=True)
+log = (directory / 'simulator.log').open('w')
+logger = None
+if os.environ.get('IOS_SIMULATOR'):
+    logger = subprocess.Popen(['xcrun', 'simctl', 'spawn', os.environ['IOS_SIMULATOR'], 'log', 'stream', '--style', 'compact', '--level', 'info', '--predicate', 'process == "App" OR process == "SpringBoard" OR process == "usernotificationsd" OR process == "runningboardd" OR process == "PermissionUITests-Runner" OR process == "splashboardd"'], stdout=log, stderr=subprocess.STDOUT)
 process = subprocess.Popen(sys.argv[1:])
 seen = {}
 sampled = set()
@@ -41,3 +45,11 @@ finally:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=10)
+    if logger is not None and logger.poll() is None:
+        logger.terminate()
+        try:
+            logger.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            logger.kill()
+            logger.wait(timeout=10)
+    log.close()
