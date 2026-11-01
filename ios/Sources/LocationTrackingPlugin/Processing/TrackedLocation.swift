@@ -15,6 +15,7 @@ struct TrackedLocation: Codable, Equatable {
     var isMock = false
 
     var accuracyMeters: Double { accuracy.isFinite && accuracy > 0 ? accuracy : 0 }
+    func isOlder(than other: TrackedLocation) -> Bool { Geo.elapsed(self, other) > 0 }
     var json: TrackingJSON { (try? jsonObject(JSONEncoder().encode(self))) ?? [:] }
     static func from(_ json: TrackingJSON) -> TrackedLocation? { try? JSONDecoder().decode(Self.self, from: jsonData(json)) }
 }

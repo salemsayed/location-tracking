@@ -68,7 +68,7 @@ final class Odometer {
         if session != started {
             session = started
             anchor = nil
-            if let started, runtime.flag("enabled"), let last = TrackedLocation.from(runtime.object("lastLocation")), last.time >= started, last.time <= fix.time, passes(last, threshold) { anchor = last }
+            if let started, runtime.flag("enabled"), let last = TrackedLocation.from(runtime.object("lastLocation")), last.time >= started, !fix.isOlder(than: last), passes(last, threshold) { anchor = last }
         }
         let previous = anchor
         anchor = fix

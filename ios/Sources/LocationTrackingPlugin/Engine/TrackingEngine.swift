@@ -36,7 +36,7 @@ final class TrackingEngine {
     private var bestKnown: TrackedLocation? {
         let threshold = geo.object("filter").number("trackingAccuracyThreshold", 100)
         let vetted = backendLocation.flatMap { threshold <= 0 || $0.accuracyMeters <= threshold ? $0 : nil }
-        return [lastFix, TrackedLocation.from(core.runtime.object("lastLocation")), vetted].compactMap { $0 }.max { $0.time < $1.time } ?? backendLocation
+        return [lastFix, TrackedLocation.from(core.runtime.object("lastLocation")), vetted].compactMap { $0 }.max { $0.isOlder(than: $1) } ?? backendLocation
     }
     func offerLastLocation(_ location: TrackedLocation?) { backendLocation = location }
     func context(provider: TrackingJSON, foreground: Bool) { self.provider = provider; self.foreground = foreground }
@@ -146,7 +146,7 @@ final class TrackingEngine {
     func receive(_ batch: [TrackedLocation], session: String? = nil) {
         guard running, session == nil || session == sessionID else { return }
         registrationFailures = 0
-        if let newest = batch.max(by: { $0.time < $1.time }) { backendLocation = newest }
+        if let newest = batch.max(by: { $0.isOlder(than: $1) }) { backendLocation = newest }
         if !batch.isEmpty { touchCheckIn() }
         for raw in batch {
             guard running else { return }
@@ -171,7 +171,7 @@ final class TrackingEngine {
     func initialFix(_ raw: TrackedLocation?) {
         guard running, mode == "location", !motionRecorded else { return }
         if let raw, case .accepted(let fix) = processor.process(raw, filter: geo.object("filter")) {
-            if lastFix == nil || fix.time >= lastFix!.time { lastFix = fix }
+            if lastFix == nil || !fix.isOlder(than: lastFix!) { lastFix = fix }
             motion.setAnchor(fix)
         }
         let known = bestKnown
@@ -239,7 +239,7 @@ final class TrackingEngine {
             guard let self else { return }
             self.core.positions.request(id: "route-" + id, options: options, watch: false) { [weak self] result in
                 guard let self else { return }
-                self.core.queue.async { [weak self] in guard let self, self.sessionID == id else { return }; self.initialFix((try? result.get()).map(TrackedLocation.init)) }
+                self.core.queue.async { [weak self] in guard let self, self.sessionID == id else { return }; self.initialFix((try? result.get()).map { TrackedLocation($0, receivedAt: self.core.clock()) }) }
             }
         }
     }

@@ -3084,6 +3084,7 @@ even when `stopOnTerminate` is true. `startOnBoot` is ignored. Deadlines use the
 On restore, matching saved wall/elapsed checkpoints preserve elapsed timing; a detected reboot or clock discontinuity uses
 the original wall-clock start. A wall-clock change while the process is absent cannot be distinguished reliably from a
 reboot on current iOS, which [no longer exposes a boot-session identifier](https://developer.apple.com/documentation/ios-ipados-release-notes/ios-ipados-18-release-notes).
+Fixes are ordered by the elapsed clock at delivery, so a wall-clock correction does not make new fixes look stale.
 
 `example/ios` is the example host. Run `npm run copy-vendor` and `npx cap sync ios` from `example/` before building.
 The iOS workflow installs the npm tarball into a fresh app through each package manager and archives both unsigned and ad-hoc signed Release

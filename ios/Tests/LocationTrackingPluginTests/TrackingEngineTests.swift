@@ -1,4 +1,5 @@
 import XCTest
+import CoreLocation
 @testable import LocationTrackingPlugin
 
 @MainActor
@@ -167,6 +168,42 @@ final class TrackingEngineTests: XCTestCase {
         XCTAssertTrue(core.state().flag("enabled"))
         core.engine.providerChanged(revoked)
         XCTAssertFalse(core.state().flag("enabled")); XCTAssertEqual(core.state().text("lastStopReason"), "permission_denied")
+    }
+    func testCoreLocationFixesSurviveABackwardClockCorrectionWithoutAcceptingStaleFixes() throws {
+        try prepare(); let start = origin; try started(); core.engine.changePace(true)
+        let manager = CLLocationManager()
+        let route = RouteSource(manager: manager, relaunch: CLLocationManager(), clock: { [unowned self] in self.now })
+        route.apply(RouteProfile(enabled: true, moving: true, accuracy: "high", activityEnabled: false))
+        route.locations = { [unowned self] fixes, _ in self.core.engine.receive(fixes) }
+        func deliver(_ north: Double, age: Double = 0) -> TrackedLocation {
+            var fix = EngineFixtures.moved(start, north); fix.time = now.wall - age; fix.elapsed = nil
+            route.locationManager(manager, didUpdateLocations: [fix.location])
+            return fix
+        }
+        func locations() -> [TrackingJSON] { records.filter { $0.text("event") == "location" } }
+        advance(1000); _ = deliver(100)
+        XCTAssertEqual(locations().count, 1)
+        now.wall -= 600000; now.elapsed += 1000
+        let corrected = deliver(200)
+        XCTAssertEqual(locations().count, 2)
+        XCTAssertEqual(route.lastLocation?.latitude, corrected.latitude)
+        now.wall += 1000; now.elapsed += 1000
+        _ = deliver(400, age: 5000)
+        XCTAssertEqual(locations().count, 2)
+        XCTAssertEqual(route.lastLocation?.latitude, corrected.latitude)
+        try core.engine.stop()
+        XCTAssertEqual((records.last?["coords"] as? TrackingJSON)?["latitude"] as? Double ?? 0, corrected.latitude, accuracy: 0.0005)
+    }
+    func testPersistedFixKeepsMonotonicTimeOnlyWhileTheClockCheckpointContinues() throws {
+        try prepare(); let written = now.elapsed
+        try core.updateRuntime(["lastLocation": EngineFixtures.location(time: now.wall, elapsed: written).json])
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil
+        advance(1000, fire: false); try reopen()
+        XCTAssertEqual(TrackedLocation.from(core.runtime.object("lastLocation"))?.elapsed, written)
+        core.engine.timers.cancelAll(); core.syncer.close(); core = nil
+        now.elapsed = 5000; try reopen()
+        XCTAssertNotNil(TrackedLocation.from(core.runtime.object("lastLocation")))
+        XCTAssertNil(TrackedLocation.from(core.runtime.object("lastLocation"))?.elapsed)
     }
     func testTerminationPolicyAndOSKillWithoutCallback() throws {
         try prepare(["app": ["stopOnTerminate": false]])

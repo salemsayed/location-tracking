@@ -37,6 +37,9 @@ final class TrackingCore {
         let persistence = config.value.object("persistence")
         try store.prune(days: Int(persistence.number("maxDaysToPersist", 7)), maximum: Int(persistence.number("maxRecordsToPersist", -1)), now: Date(timeIntervalSince1970: clock().wall / 1000))
         runtime = try store.load("runtime") ?? [:]
+        if !(TrackingInstant.from(runtime.object("clockCheckpoint")).map { clock().continues($0) } ?? false), var stored = TrackedLocation.from(runtime.object("lastLocation")), stored.elapsed != nil {
+            stored.elapsed = nil; runtime["lastLocation"] = stored.json
+        }
         monitor.pathUpdateHandler = { [weak self] path in
             guard let self else { return }
             self.network = path.status != .satisfied ? "none" : path.usesInterfaceType(.cellular) ? "cellular" : path.usesInterfaceType(.wifi) ? "wifi" : path.usesInterfaceType(.wiredEthernet) ? "ethernet" : "other"

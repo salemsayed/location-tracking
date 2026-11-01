@@ -18,6 +18,7 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
     private var profile = RouteProfile(enabled: false, moving: false, accuracy: "high", activityEnabled: false)
     private var activityRunning = false
     private var cachedLocation: TrackedLocation?
+    private let clock: () -> TrackingInstant
     var locations: (([TrackedLocation], String) -> Void)?
     var error: ((TrackingError, String) -> Void)?
     var activity: ((ActivitySample, String) -> Void)?
@@ -26,8 +27,8 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
         precondition(Thread.isMainThread)
         return cachedLocation
     }
-    init(manager: CLLocationManager = CLLocationManager(), relaunch: CLLocationManager = CLLocationManager()) {
-        self.manager = manager; self.relaunch = relaunch
+    init(manager: CLLocationManager = CLLocationManager(), relaunch: CLLocationManager = CLLocationManager(), clock: @escaping () -> TrackingInstant = TrackingClock.now) {
+        self.manager = manager; self.relaunch = relaunch; self.clock = clock
         super.init()
         manager.delegate = self; relaunch.delegate = self
         manager.distanceFilter = kCLDistanceFilterNone
@@ -69,8 +70,9 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
     }
     func locationManager(_ source: CLLocationManager, didUpdateLocations fixes: [CLLocation]) {
         guard source === manager else { return }
-        let valid = fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) }.map(TrackedLocation.init)
-        if let newest = valid.max(by: { $0.time < $1.time }), cachedLocation == nil || newest.time >= cachedLocation!.time { cachedLocation = newest }
+        let now = clock()
+        let valid = fixes.filter { $0.horizontalAccuracy >= 0 && CLLocationCoordinate2DIsValid($0.coordinate) }.map { TrackedLocation($0, receivedAt: now) }
+        if let newest = valid.max(by: { $0.isOlder(than: $1) }), cachedLocation == nil || !newest.isOlder(than: cachedLocation!) { cachedLocation = newest }
         guard profile.enabled else { return }
         locations?(valid, profile.sessionID)
     }
@@ -89,6 +91,11 @@ final class RouteSource: NSObject, CLLocationManagerDelegate {
 extension TrackedLocation {
     init(_ fix: CLLocation) {
         self.init(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude, accuracy: fix.horizontalAccuracy, altitude: fix.verticalAccuracy >= 0 ? fix.altitude : nil, altitudeAccuracy: fix.verticalAccuracy >= 0 ? fix.verticalAccuracy : nil, speed: fix.speed >= 0 ? fix.speed : nil, speedAccuracy: fix.speedAccuracy >= 0 ? fix.speedAccuracy : nil, heading: fix.course >= 0 ? fix.course : nil, headingAccuracy: fix.courseAccuracy >= 0 ? fix.courseAccuracy : nil, time: fix.timestamp.timeIntervalSince1970 * 1000, isMock: fix.sourceInformation?.isSimulatedBySoftware ?? false)
+    }
+    init(_ fix: CLLocation, receivedAt now: TrackingInstant) {
+        self.init(fix)
+        let mapped = now.elapsed - max(0, now.wall - time)
+        elapsed = mapped > 0 ? mapped : nil
     }
     var location: CLLocation {
         CLLocation(coordinate: CLLocationCoordinate2D(latitude: latitude, longitude: longitude), altitude: altitude ?? 0, horizontalAccuracy: accuracy, verticalAccuracy: altitudeAccuracy ?? -1, course: heading ?? -1, courseAccuracy: headingAccuracy ?? -1, speed: speed ?? -1, speedAccuracy: speedAccuracy ?? -1, timestamp: Date(timeIntervalSince1970: time / 1000))
