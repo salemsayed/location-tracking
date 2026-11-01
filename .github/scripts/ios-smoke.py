@@ -2,7 +2,6 @@ import json
 import os
 import pathlib
 import subprocess
-import threading
 import time
 
 identifier = os.environ['IOS_SIMULATOR']
@@ -19,20 +18,15 @@ sim('privacy', identifier, 'grant', 'location-always', bundle)
 sim('location', identifier, 'set', '24.7136,46.6753')
 container = pathlib.Path(sim('get_app_container', identifier, bundle, 'data'))
 result = container / 'Library/Application Support/ios-stage1-smoke.json'
-finished = threading.Event()
-
-def move():
-    for index in range(300):
-        if finished.wait(1):
-            return
-        sim('location', identifier, 'set', f'{24.7136 + index * 0.001},46.6753')
-
-thread = threading.Thread(target=move, daemon=True)
+gps = pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-gps.log').open('w')
+route = subprocess.Popen(['xcrun', 'simctl', 'location', identifier, 'start', '--speed=20', '--interval=1', '24.7136,46.6753', '24.9,46.8'], stdout=gps, stderr=subprocess.STDOUT)
 try:
     sim('launch', '--terminate-running-process', identifier, bundle, '--ios-stage1-smoke', timeout=120)
-    thread.start()
+
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
+        if route.poll() not in [None, 0]:
+            raise RuntimeError('Simulator GPS route failed; see ios-smoke-gps.log')
         if result.exists():
             data = json.loads(result.read_text())
             pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.json').write_text(json.dumps(data, indent=2))
@@ -44,18 +38,22 @@ try:
     else:
         raise RuntimeError('Timed out waiting for WebView smoke report')
 finally:
-    finished.set()
+    if route.poll() is None:
+        route.terminate()
+        try:
+            route.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            route.kill()
+            route.wait(timeout=5)
+    gps.close()
     state = container / 'Library/Application Support/ios-stage1-state.json'
     if state.exists():
         pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-state.json').write_bytes(state.read_bytes())
         print(state.read_text())
-    if thread.ident is not None:
-        thread.join(timeout=5)
-    if not thread.is_alive():
-        try:
-            subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=15)
-            with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
-                subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=15)
-            sim('location', identifier, 'clear', timeout=15)
-        except subprocess.SubprocessError:
-            print('Simulator diagnostic cleanup did not finish')
+    try:
+        subprocess.run(['xcrun', 'simctl', 'io', identifier, 'screenshot', str(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke.png'))], check=False, timeout=15)
+        with open(pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-smoke-native.log'), 'w') as output:
+            subprocess.run(['xcrun', 'simctl', 'spawn', identifier, 'log', 'show', '--last', '3m', '--style', 'compact', '--predicate', 'process == "App"'], stdout=output, stderr=subprocess.STDOUT, check=False, timeout=15)
+        sim('location', identifier, 'clear', timeout=15)
+    except subprocess.SubprocessError:
+        print('Simulator diagnostic cleanup did not finish')
