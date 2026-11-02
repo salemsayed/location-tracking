@@ -133,8 +133,10 @@ final class TrackingCore {
                                 let fix = try result.get()
                                 if watch && self.config.value.object("geolocation").object("filter").flag("rejectMockLocations") && fix.sourceInformation?.isSimulatedBySoftware == true { return }
                                 let extras = self.config.value.object("persistence").object("extras").merging(options.object("extras")) { _, new in new }
-                                let wire = self.makeRecord(event: watch ? "watch_position" : "current_position", fix: TrackedLocation(fix), extras: extras, provider: provider)
-                                if options.flag("persist", !watch) { self.deliver(wire, location: TrackedLocation(fix)) }
+                                var location = TrackedLocation(fix)
+                                if self.runtime.flag("enabled") { location.session = self.runtime["trackingStartedAt"] as? Double }
+                                let wire = self.makeRecord(event: watch ? "watch_position" : "current_position", fix: location, extras: extras, provider: provider)
+                                if options.flag("persist", !watch) { self.deliver(wire, location: location) }
                                 callback(.success(wire))
                             } catch { callback(.failure(error)) }
                         }
@@ -252,7 +254,7 @@ final class TrackingCore {
         next["lastRecordAt"] = wire["recorded_at"]
         next["lastRecordElapsed"] = wire["elapsed_realtime_ms"] ?? clock().elapsed
         next["clockCheckpoint"] = clock().json
-        if let location { next["lastLocation"] = location.json; next["lastLocationSession"] = runtime["trackingStartedAt"] ?? NSNull() }
+        if let location { next["lastLocation"] = location.json }
         if wire.text("event") == "heartbeat" { next["lastHeartbeatAt"] = wire["recorded_at"] }
         return next
     }

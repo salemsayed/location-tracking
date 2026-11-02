@@ -229,6 +229,23 @@ final class TrackingEngineTests: XCTestCase {
         core.engine.receive([next])
         XCTAssertEqual(core.odometer, before + Geo.distance(corrected, next), accuracy: 1)
     }
+    func testRestartWithACachedFixFromTheStoppedSessionDoesNotCountTravelWhileStopped() throws {
+        try prepare(); let start = origin; try started(); core.engine.changePace(true)
+        advance(1000)
+        var first = EngineFixtures.moved(start, 100); first.time = now.wall; first.elapsed = now.elapsed
+        core.engine.receive([first])
+        try core.engine.stop()
+        advance(600000, fire: false)
+        try core.engine.start(); core.engine.changePace(true)
+        let before = core.odometer
+        var far = EngineFixtures.moved(start, 5000); far.time = now.wall; far.elapsed = now.elapsed
+        core.engine.receive([far])
+        XCTAssertEqual(core.odometer, before)
+        advance(1000)
+        var next = EngineFixtures.moved(far, 100); next.time = now.wall; next.elapsed = now.elapsed
+        core.engine.receive([next])
+        XCTAssertEqual(core.odometer, before + Geo.distance(far, next), accuracy: 1)
+    }
     func testPersistedFixKeepsMonotonicTimeOnlyWhileTheClockCheckpointContinues() throws {
         try prepare(); let written = now.elapsed
         try core.updateRuntime(["lastLocation": EngineFixtures.location(time: now.wall, elapsed: written).json])

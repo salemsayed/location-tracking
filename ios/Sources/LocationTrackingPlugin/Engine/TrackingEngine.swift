@@ -157,7 +157,8 @@ final class TrackingEngine {
         if !batch.isEmpty { touchCheckIn() }
         for raw in batch {
             guard running else { return }
-            guard case .accepted(let fix) = processor.process(raw, filter: geo.object("filter")) else { continue }
+            guard case .accepted(var fix) = processor.process(raw, filter: geo.object("filter")) else { continue }
+            fix.session = core.runtime["trackingStartedAt"] as? Double
             lastFix = fix
             geofences?.onLocation(fix)
             guard running else { return }
@@ -185,7 +186,8 @@ final class TrackingEngine {
     }
     func initialFix(_ raw: TrackedLocation?) {
         guard running, mode == "location", !motionRecorded else { return }
-        if let raw, case .accepted(let fix) = processor.process(raw, filter: geo.object("filter")) {
+        if let raw, case .accepted(var fix) = processor.process(raw, filter: geo.object("filter")) {
+            fix.session = core.runtime["trackingStartedAt"] as? Double
             if lastFix == nil || !fix.isOlder(than: lastFix!) { lastFix = fix }
             motion.setAnchor(fix)
         }
@@ -235,7 +237,7 @@ final class TrackingEngine {
     private func rememberLocation(_ fix: TrackedLocation, force: Bool = false) {
         let now = core.clock().elapsed
         guard force || lastLocationPersisted == nil || now - lastLocationPersisted! >= 10000 else { return }
-        lastLocationPersisted = now; update(["lastLocation": fix.json, "lastLocationSession": core.runtime["trackingStartedAt"] ?? NSNull()])
+        lastLocationPersisted = now; update(["lastLocation": fix.json])
     }
     private func update(_ values: TrackingJSON) {
         do { try core.updateRuntime(values) }
