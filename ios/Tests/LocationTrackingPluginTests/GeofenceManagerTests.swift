@@ -516,6 +516,16 @@ final class GeofenceManagerTests: XCTestCase {
         h.manager.setSuspended(false); XCTAssertEqual(Set(h.backend.registered.keys), ["home"])
         h.manager.setSuspended(true); XCTAssertEqual(blocked, 3)
     }
+    func testAnInitialOutsideDeterminationReportsTheExitMissedByARestoredInsideGeofence() {
+        let store = restoredStore(circle("home"), GeofenceRuntime(insideCircle: true, insidePolygon: false, enteredAt: GeofenceHarness.defaultNow - 3600000))
+        try? store.upsert([normalized(polygon("zone"))]); try? store.setRuntime("zone", GeofenceRuntime(insideCircle: true, insidePolygon: true, enteredAt: GeofenceHarness.defaultNow - 3600000))
+        let h = GeofenceHarness(store: store)
+        h.manager.onTrackingStarted()
+        h.manager.onTransitions([OsGeofenceTransition(id: "home", action: .exit, location: nil, initial: true), OsGeofenceTransition(id: "zone", action: .exit, location: nil, initial: true)])
+        XCTAssertEqual(h.actions, ["home:EXIT", "zone:EXIT"])
+        h.manager.onTransitions([OsGeofenceTransition(id: "home", action: .exit, location: nil, initial: true)])
+        XCTAssertEqual(h.hits.count, 2, "an outside determination without a restored inside state is silent")
+    }
 }
 
 private extension Array {

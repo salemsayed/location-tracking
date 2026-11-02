@@ -194,6 +194,7 @@ final class GeofenceManager {
         do { try ensureLoaded() } catch { log("error", "cannot load geofences; dropping \(transitions.count) transition(s)"); return }
         for transition in transitions {
             guard let entry = entries[transition.id] else { log("warn", "ignoring \(transition.action.rawValue) for unknown geofence '\(transition.id)'"); continue }
+            if transition.initial && !(transition.action == .exit && entry.runtime.insideCircle && (entry.spec.isPolygon || !entry.observed)) { continue }
             if entry.spec.isPolygon { onPolygonCircleTransition(entry, transition) } else { onCircleTransition(entry, transition) }
         }
         refreshDerived()

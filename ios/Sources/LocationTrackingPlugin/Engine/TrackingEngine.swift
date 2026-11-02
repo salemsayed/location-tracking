@@ -328,6 +328,12 @@ final class TrackingEngine {
         core.deliver(wire, location: location)
     }
     private func updateGeofenceAccess() { geofences?.setSuspended(provider.text("accuracy") == "approximate") }
+    func geofenceFailures(_ failures: [MonitorFailure]) {
+        for failure in failures {
+            core.log.write("error", failure.message + " (" + failure.code + ")")
+            core.emit("locationerror", ["code": failure.code, "message": failure.message, "backend": "corelocation", "retryInMs": NSNull()])
+        }
+    }
     func geofencesBlocked() {
         core.emit("locationerror", ["code": "PERMISSION_DENIED", "message": "Geofences need precise location; stored geofences stay inactive while location accuracy is approximate", "backend": "corelocation", "retryInMs": NSNull()])
     }

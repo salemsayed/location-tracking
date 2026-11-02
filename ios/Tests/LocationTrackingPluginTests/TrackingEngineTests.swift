@@ -302,6 +302,13 @@ final class TrackingEngineTests: XCTestCase {
         try core.engine.stop(); try core.engine.start(mode: "geofences")
         XCTAssertEqual(errors().count, 2)
     }
+    func testGeofenceMonitorFailuresReachLocationErrorWithTheGeofenceAndCode() throws {
+        try prepare()
+        core.engine.geofenceFailures([MonitorFailure(id: "home", code: "TOO_MANY_GEOFENCES", message: "geofence 'home': Core Location suspended monitoring because the app monitors too many conditions")])
+        let failure = try XCTUnwrap(events.last { $0.0 == "locationerror" }?.1)
+        XCTAssertEqual(failure.text("code"), "TOO_MANY_GEOFENCES"); XCTAssertTrue(failure.text("message").contains("'home'"))
+        XCTAssertEqual(failure.text("backend"), "corelocation"); XCTAssertTrue(failure["retryInMs"] is NSNull)
+    }
     func testTerminationPolicyAndOSKillWithoutCallback() throws {
         try prepare(["app": ["stopOnTerminate": false]])
         try started(); core.engine.terminate(); XCTAssertTrue(core.state().flag("enabled"))

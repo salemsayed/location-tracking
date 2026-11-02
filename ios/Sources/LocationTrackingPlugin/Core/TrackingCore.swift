@@ -48,7 +48,10 @@ final class TrackingCore {
         }
         monitor.start(queue: queue)
         if let geofenceBackend { attachGeofences(geofenceBackend) }
-        else if #available(iOS 17.0, *) { attachGeofences(GeofenceMonitor.shared(queue: queue)) }
+        else if #available(iOS 17.0, *) {
+            let manager = permissions.manager
+            attachGeofences(GeofenceMonitor.shared(queue: queue) { manager.authorizationStatus })
+        }
     }
     var geofences: GeofenceManager? { engine.geofences }
     private func attachGeofences(_ backend: GeofenceBackend) {
@@ -57,7 +60,7 @@ final class TrackingCore {
         manager.blocked = { [unowned self] in self.engine.geofencesBlocked() }
         if #available(iOS 17.0, *), let monitor = backend as? GeofenceMonitor {
             monitor.transitions = { [weak manager] in manager?.onTransitions($0) }
-            monitor.diagnostic = { [weak self] level, message in self?.log.write(level, message) }
+            monitor.failures = { [weak self] in self?.engine.geofenceFailures($0) }
         }
         engine.geofences = manager
     }

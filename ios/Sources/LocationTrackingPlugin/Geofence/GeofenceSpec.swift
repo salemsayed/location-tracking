@@ -95,8 +95,9 @@ struct OsGeofence: Equatable {
     var initialTriggerEntry: Bool
 }
 
-struct OsGeofenceTransition {
+struct OsGeofenceTransition: Equatable {
     var id: String
     var action: GeofenceAction
     var location: TrackedLocation?
+    var initial = false
 }
