@@ -57,15 +57,146 @@ final class GeofenceEventAdapterTests: XCTestCase {
         adapter.retain(["b"])
         XCTAssertEqual(actions("a", .satisfied), []); XCTAssertEqual(actions("b", .satisfied), ["ENTER"])
     }
-    func testTheMonitorDoesNotOpenWhileLocationAuthorizationIsUndetermined() throws {
-        guard #available(iOS 17.0, *) else { throw XCTSkip("CLMonitor requires iOS 17") }
+
+}
+
+final class FakeMonitorClient: MonitorClient {
+    var saved: [String: MonitoredCondition] = [:]
+    var added: [String] = []
+    private let stream: AsyncStream<MonitorEventValue>
+    private let continuation: AsyncStream<MonitorEventValue>.Continuation
+    init() {
+        var captured: AsyncStream<MonitorEventValue>.Continuation!
+        stream = AsyncStream { captured = $0 }
+        continuation = captured
+    }
+    func identifiers() async -> [String] { saved.keys.sorted() }
+    func condition(_ id: String) async -> MonitoredCondition? { saved[id] }
+    func add(_ region: OsGeofence) async { added.append(region.id); saved[region.id] = MonitoredCondition(state: .unknown, latitude: region.latitude, longitude: region.longitude, radius: region.radius) }
+    func remove(_ id: String) async { saved[id] = nil }
+    func consume(_ handler: @escaping (MonitorEventValue) -> Void) async throws { for await value in stream { handler(value) } }
+    func emit(_ id: String, _ state: MonitorState) { continuation.yield(MonitorEventValue(id: id, state: state, diagnostics: [])) }
+}
+
+@MainActor
+final class GeofenceMonitorTests: XCTestCase {
+    let lat = GeofenceFixtures.lat, lng = GeofenceFixtures.lng
+    var hits: [String] = []
+    var initialTriggerEntry = false
+
+    func saved(_ state: MonitorState, radius: Double = 100) -> MonitoredCondition { MonitoredCondition(state: state, latitude: lat, longitude: lng, radius: radius) }
+    func idle(_ monitor: GeofenceMonitor) async { await withCheckedContinuation { continuation in monitor.whenIdle { continuation.resume() } } }
+    func waitForHits(_ count: Int) async {
+        var attempts = 0
+        while attempts < 300, hits.count < count {
+            attempts += 1
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+    func store(_ runtimes: [String: GeofenceRuntime]) -> FakeGeofenceStore {
+        let store = FakeGeofenceStore()
+        for (id, runtime) in runtimes.sorted(by: { $0.key < $1.key }) {
+            try? store.upsert([GeofenceFixtures.circle(id, latitude: lat, longitude: lng, radius: 100)]); try? store.setRuntime(id, runtime)
+        }
+        return store
+    }
+    func relaunch(_ client: FakeMonitorClient, _ store: FakeGeofenceStore, status: CLAuthorizationStatus = .authorizedAlways) -> (GeofenceMonitor, GeofenceManager) {
+        let monitor = GeofenceMonitor(queue: .main, authorization: { status }) { client }
+        let manager = GeofenceManager(store: store, backend: monitor, queue: .main, now: { GeofenceHarness.defaultNow }, automaticTimers: false, initialTriggerEntry: { [unowned self] in self.initialTriggerEntry }, enabled: { true }, storedLocation: { nil }, notify: { [unowned self] spec, action, _ in self.hits.append(spec.identifier + ":" + action.rawValue) }, changed: { _, _ in })
+        monitor.transitions = { [weak manager] in manager?.onTransitions($0) }
+        return (monitor, manager)
+    }
+    let inside = GeofenceRuntime(insideCircle: true, insidePolygon: false, enteredAt: GeofenceHarness.defaultNow - 60000)
+
+    func testAPersistedOutsideCircleEnteredWhileTheAppWasGoneReportsEnterWithInitialTriggerDisabled() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unsatisfied)]
+        client.emit("home", .satisfied)
+        let (monitor, manager) = relaunch(client, store(["home": .unknown]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:ENTER"])
+        XCTAssertEqual(client.added, [], "an unchanged saved condition is restored, not registered again")
+    }
+    func testAPersistedInsideCircleLeftWhileTheAppWasGoneReportsExit() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.satisfied)]
+        client.emit("home", .unsatisfied)
+        let (monitor, manager) = relaunch(client, store(["home": inside]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:EXIT"])
+        client.emit("home", .unsatisfied)
+        client.emit("home", .satisfied)
+        await waitForHits(2)
+        XCTAssertEqual(hits, ["home:EXIT", "home:ENTER"])
+    }
+    func testARestoredStateThatDidNotChangeStaysSilentUntilARealTransition() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.satisfied), "work": saved(.unsatisfied)]
+        let (monitor, manager) = relaunch(client, store(["home": inside, "work": .unknown]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        client.emit("home", .satisfied); client.emit("work", .unsatisfied); client.emit("work", .satisfied)
+        await waitForHits(1)
+        await idle(monitor)
+        XCTAssertEqual(hits, ["work:ENTER"])
+    }
+    func testAChangedSavedConditionIsRegisteredAgainWithItsInitialDetermination() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unsatisfied, radius: 50)]
+        let (monitor, manager) = relaunch(client, store(["home": .unknown]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        XCTAssertEqual(client.added, ["home"])
+        client.emit("home", .satisfied); client.emit("home", .unsatisfied)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:EXIT"], "the initial inside determination stays silent with initialTriggerEntry false")
+    }
+    func testReplacingAGeofenceRegistersItAfreshEvenWhenTheConditionIsUnchanged() async throws {
+        initialTriggerEntry = true
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.satisfied)]
+        let (monitor, manager) = relaunch(client, store(["home": inside]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        XCTAssertEqual(client.added, [])
+        try manager.add([GeofenceFixtures.circle("home", latitude: lat, longitude: lng, radius: 100)])
+        await idle(monitor)
+        XCTAssertEqual(client.added, ["home"])
+        client.emit("home", .satisfied)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:ENTER"])
+    }
+    func testRemovedAndStaleConditionsAreNotRevivedBySavedRecords() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unsatisfied), "stale": saved(.unsatisfied)]
+        let (monitor, manager) = relaunch(client, store(["home": .unknown]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        XCTAssertEqual(client.saved.keys.sorted(), ["home"])
+        client.emit("stale", .satisfied)
+        try? manager.remove(["home"])
+        await idle(monitor)
+        client.emit("home", .satisfied)
+        await idle(monitor)
+        XCTAssertEqual(hits, [])
+        XCTAssertTrue(client.saved.isEmpty)
+    }
+    func testTheMonitorDoesNotOpenWhileLocationAuthorizationIsUndetermined() async {
         var status = CLAuthorizationStatus.notDetermined
-        let monitor = GeofenceMonitor(name: "LocationTrackingTests", queue: .main) { status }
-        monitor.add([OsGeofence(id: "home", latitude: 24.7136, longitude: 46.6753, radius: 100, onEntry: true, onExit: true, initialTriggerEntry: true)])
-        monitor.remove(["home"]); monitor.retain([]); monitor.holdSession(false)
-        XCTAssertFalse(monitor.isOpen)
+        var opened = 0
+        let client = FakeMonitorClient()
+        let monitor = GeofenceMonitor(queue: .main, authorization: { status }) { opened += 1; return client }
+        let region = OsGeofence(id: "home", latitude: lat, longitude: lng, radius: 100, onEntry: true, onExit: true, initialTriggerEntry: false)
+        monitor.add([region]); monitor.restore([region]); monitor.remove(["home"]); monitor.retain([]); monitor.holdSession(false)
+        await idle(monitor)
+        XCTAssertFalse(monitor.isOpen); XCTAssertEqual(opened, 0)
         status = .denied
         monitor.retain([])
-        XCTAssertTrue(monitor.isOpen)
+        await idle(monitor)
+        XCTAssertTrue(monitor.isOpen); XCTAssertEqual(opened, 1)
     }
 }

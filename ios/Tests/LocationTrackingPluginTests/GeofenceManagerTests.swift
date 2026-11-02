@@ -4,9 +4,11 @@ import XCTest
 final class FakeGeofenceBackend: GeofenceBackend {
     var registered: [String: OsGeofence] = [:]
     var addCalls: [[OsGeofence]] = []
+    var restoreCalls: [[OsGeofence]] = []
     var removeCalls: [[String]] = []
     var sessions: [Bool] = []
     func add(_ regions: [OsGeofence]) { addCalls.append(regions); regions.forEach { registered[$0.id] = $0 } }
+    func restore(_ regions: [OsGeofence]) { restoreCalls.append(regions); regions.forEach { registered[$0.id] = $0 } }
     func remove(_ ids: [String]) { guard !ids.isEmpty else { return }; removeCalls.append(ids); ids.forEach { registered.removeValue(forKey: $0) } }
     func retain(_ ids: Set<String>) { registered = registered.filter { ids.contains($0.key) } }
     func holdSession(_ always: Bool) { sessions.append(always) }
@@ -162,9 +164,16 @@ final class GeofenceManagerTests: XCTestCase {
         try h.manager.add((1...20).map { circle("g\($0)") })
         XCTAssertTrue(h.backend.addCalls.isEmpty)
         h.enabled = true; h.manager.onTrackingStarted()
-        XCTAssertEqual(h.backend.addCalls.map(\.count), [20]); XCTAssertEqual(h.backend.registered.count, 20)
+        XCTAssertTrue(h.backend.addCalls.isEmpty); XCTAssertEqual(h.backend.restoreCalls.map(\.count), [20]); XCTAssertEqual(h.backend.registered.count, 20)
         h.manager.onTrackingStopped()
         XCTAssertTrue(h.backend.registered.isEmpty); XCTAssertEqual(h.store.count, 20); XCTAssertFalse(h.manager.needsContinuousLocation)
+    }
+    func testResumingTrackingRestoresStoredGeofencesWhileAddingOrReplacingOneRegistersItAfresh() throws {
+        let h = GeofenceHarness(store: restoredStore(circle("home"), GeofenceRuntime(insideCircle: true, insidePolygon: false, enteredAt: GeofenceHarness.defaultNow - 60000)))
+        h.manager.onTrackingStarted()
+        XCTAssertEqual(h.backend.restoreCalls.map { $0.map(\.id) }, [["home"]]); XCTAssertTrue(h.backend.addCalls.isEmpty)
+        try h.manager.add([circle("home")])
+        XCTAssertEqual(h.backend.addCalls.map { $0.map(\.id) }, [["home"]]); XCTAssertEqual(h.backend.restoreCalls.count, 1)
     }
     func testCircleEnterAndExitBecomeGeofenceRecords() throws {
         let h = GeofenceHarness()

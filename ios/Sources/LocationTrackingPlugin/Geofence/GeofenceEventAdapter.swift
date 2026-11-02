@@ -17,6 +17,11 @@ final class GeofenceEventAdapter {
         if known[id] == nil { known[id] = state }
     }
 
+    func restored(_ id: String, initialTriggerEntry: Bool, state: MonitorState) {
+        initialTrigger[id] = initialTriggerEntry
+        if known[id] == nil { known[id] = state }
+    }
+
     func registered(_ id: String, initialTriggerEntry: Bool) {
         known[id] = .unknown
         initialTrigger[id] = initialTriggerEntry

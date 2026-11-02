@@ -2,6 +2,7 @@ import Foundation
 
 protocol GeofenceBackend: AnyObject {
     func add(_ regions: [OsGeofence])
+    func restore(_ regions: [OsGeofence])
     func remove(_ ids: [String])
     func retain(_ ids: Set<String>)
     func holdSession(_ always: Bool)
@@ -361,7 +362,7 @@ final class GeofenceManager {
         for id in order { if let entry = entries[id] { openInitialWindow(entry, time) } }
         backend.retain(Set(registrableIds()))
         guard !suspended else { return }
-        register(order.compactMap { entries[$0]?.spec })
+        register(order.compactMap { entries[$0]?.spec }, restoring: true)
     }
 
     private func openInitialWindow(_ entry: Entry, _ time: Double) {
@@ -372,10 +373,11 @@ final class GeofenceManager {
         if Self.distanceFromCenter(spec, fix) - Self.accuracy(fix) > spec.radius { persist(entry, GeofenceRuntime(insideCircle: false, insidePolygon: false, enteredAt: time)) }
     }
 
-    private func register(_ specs: [GeofenceSpec]) {
+    private func register(_ specs: [GeofenceSpec], restoring: Bool = false) {
         let trigger = initialTriggerEntry()
         let regions = specs.compactMap { Self.osGeofence($0, initialTriggerEntry: trigger) }
-        if !regions.isEmpty { backend.add(regions) }
+        guard !regions.isEmpty else { return }
+        if restoring { backend.restore(regions) } else { backend.add(regions) }
     }
 
     private func registrableIds() -> [String] { order.filter { entries[$0]?.spec.isActive == true } }
