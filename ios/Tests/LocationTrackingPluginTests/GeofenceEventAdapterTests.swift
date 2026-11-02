@@ -111,21 +111,21 @@ final class GeofenceMonitorTests: XCTestCase {
     func testAPersistedOutsideCircleEnteredWhileTheAppWasGoneReportsEnterWithInitialTriggerDisabled() async {
         let client = FakeMonitorClient()
         client.saved = ["home": saved(.unsatisfied)]
-        client.emit("home", .satisfied)
         let (monitor, manager) = relaunch(client, store(["home": .unknown]))
         manager.onTrackingStarted()
         await idle(monitor)
+        XCTAssertEqual(client.added, [], "an unchanged saved condition is restored, not registered again")
+        client.emit("home", .satisfied)
         await waitForHits(1)
         XCTAssertEqual(hits, ["home:ENTER"])
-        XCTAssertEqual(client.added, [], "an unchanged saved condition is restored, not registered again")
     }
     func testAPersistedInsideCircleLeftWhileTheAppWasGoneReportsExit() async {
         let client = FakeMonitorClient()
         client.saved = ["home": saved(.satisfied)]
-        client.emit("home", .unsatisfied)
         let (monitor, manager) = relaunch(client, store(["home": inside]))
         manager.onTrackingStarted()
         await idle(monitor)
+        client.emit("home", .unsatisfied)
         await waitForHits(1)
         XCTAssertEqual(hits, ["home:EXIT"])
         client.emit("home", .unsatisfied)
@@ -133,7 +133,18 @@ final class GeofenceMonitorTests: XCTestCase {
         await waitForHits(2)
         XCTAssertEqual(hits, ["home:EXIT", "home:ENTER"])
     }
+    func testEventsPendingWhenTheMonitorOpensAreComparedWithTheSavedState() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unsatisfied), "work": saved(.satisfied)]
+        client.emit("home", .satisfied); client.emit("work", .unsatisfied)
+        let (monitor, manager) = relaunch(client, store(["home": .unknown, "work": inside]))
+        manager.onTrackingStarted()
+        await idle(monitor)
+        await waitForHits(2)
+        XCTAssertEqual(hits, ["home:ENTER", "work:EXIT"])
+    }
     func testARestoredStateThatDidNotChangeStaysSilentUntilARealTransition() async {
+        initialTriggerEntry = true
         let client = FakeMonitorClient()
         client.saved = ["home": saved(.satisfied), "work": saved(.unsatisfied)]
         let (monitor, manager) = relaunch(client, store(["home": inside, "work": .unknown]))
