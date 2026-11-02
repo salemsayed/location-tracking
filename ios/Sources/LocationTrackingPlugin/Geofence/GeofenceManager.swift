@@ -48,7 +48,9 @@ final class GeofenceManager {
     private var lastStreamFix: TrackedLocation?
     private(set) var needsContinuousLocation = false
     private(set) var suspended = false
+    private var always = false
     var demandChanged: ((Bool) -> Void)?
+    var blocked: (() -> Void)?
     private(set) var dwell: DwellTracker!
 
     init(store: GeofenceStore, backend: GeofenceBackend, queue: DispatchQueue, now: @escaping () -> Double, automaticTimers: Bool = true, initialTriggerEntry: @escaping () -> Bool, enabled: @escaping () -> Bool, storedLocation: @escaping () -> TrackedLocation?, notify: @escaping (GeofenceSpec, GeofenceAction, TrackedLocation?) -> Void, changed: @escaping ([GeofenceSpec], [String]) -> Void, log: @escaping (String, String) -> Void = { _, _ in }) {
@@ -94,6 +96,8 @@ final class GeofenceManager {
             if register { openInitialWindow(entry, time) }
         }
         refreshDerived()
+        reconcileSession()
+        if session == true && suspended && list.contains(where: \.isActive) { blocked?() }
         log("info", "added \(list.count) geofence(s): \(ids.joined(separator: ", "))")
         changed(list, [])
     }
@@ -110,6 +114,7 @@ final class GeofenceManager {
         for id in existing { dwell.cancel(id); entries.removeValue(forKey: id) }
         order.removeAll { existing.contains($0) }
         refreshDerived()
+        reconcileSession()
         changed([], existing)
     }
 
@@ -120,6 +125,7 @@ final class GeofenceManager {
         if enabled() { backend.remove(registered) }
         dwell.cancelAll(); entries.removeAll(); order.removeAll()
         refreshDerived()
+        reconcileSession()
         guard !ids.isEmpty else { return }
         changed([], ids)
     }
@@ -129,11 +135,18 @@ final class GeofenceManager {
 
     func onTrackingStarted(always: Bool = false) {
         session = true
+        self.always = always
         do { try ensureLoaded() } catch { log("error", "cannot load geofences; none registered"); return }
-        backend.holdSession(always && !order.isEmpty)
+        reconcileSession()
         registerAll()
         refreshDwellTimers()
         refreshDerived()
+        if suspended && !registrableIds().isEmpty { blocked?() }
+    }
+
+    private func reconcileSession() {
+        guard session == true else { return }
+        backend.holdSession(always && !registrableIds().isEmpty)
     }
 
     func onTrackingStopped() {
@@ -160,14 +173,13 @@ final class GeofenceManager {
         if value {
             dwell.cancelAll()
             backend.remove(registrableIds())
+            if !registrableIds().isEmpty { blocked?() }
         } else {
             registerAll()
             refreshDwellTimers()
         }
         refreshDerived()
     }
-
-    var isEmpty: Bool { (try? ensureLoaded()) == nil ? true : order.isEmpty }
 
     func onLocation(_ location: TrackedLocation) {
         if lastFix == nil || !location.isOlder(than: lastFix!) { lastFix = location }

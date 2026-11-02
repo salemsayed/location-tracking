@@ -288,6 +288,20 @@ final class TrackingEngineTests: XCTestCase {
         try core.engine.stop()
         XCTAssertTrue(backend.registered.isEmpty)
     }
+    func testApproximateAccuracyReportsEachBlockedGeofenceAttempt() throws {
+        try prepare(); core.engine.timers.cancelAll(); core.syncer.close()
+        let backend = FakeGeofenceBackend()
+        core = try TrackingCore(queue: .main, permissions: Permissions(), positions: Positions(), emit: { [weak self] in self?.events.append(($0, $1)) }, record: { [weak self] in self?.records.append($0) }, url: url, clock: { [unowned self] in self.now }, automaticTimers: false, geofenceBackend: backend)
+        var approximate = provider; approximate["accuracy"] = "approximate"
+        core.engine.context(provider: approximate, foreground: true)
+        func errors() -> [TrackingJSON] { events.filter { $0.0 == "locationerror" }.map(\.1) }
+        try core.engine.start(mode: "geofences")
+        XCTAssertTrue(errors().isEmpty)
+        try XCTUnwrap(core.geofences).add([GeofenceFixtures.circle("home")])
+        XCTAssertEqual(errors().map { $0.text("code") }, ["PERMISSION_DENIED"]); XCTAssertTrue(backend.registered.isEmpty)
+        try core.engine.stop(); try core.engine.start(mode: "geofences")
+        XCTAssertEqual(errors().count, 2)
+    }
     func testTerminationPolicyAndOSKillWithoutCallback() throws {
         try prepare(["app": ["stopOnTerminate": false]])
         try started(); core.engine.terminate(); XCTAssertTrue(core.state().flag("enabled"))

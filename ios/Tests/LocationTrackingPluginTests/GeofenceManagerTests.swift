@@ -484,12 +484,37 @@ final class GeofenceManagerTests: XCTestCase {
         h.transition("home", .enter, h.fix(0))
         XCTAssertEqual(h.actions, ["home:ENTER"])
     }
-    func testServiceSessionIsHeldOnlyWithAlwaysAndStoredGeofences() throws {
+    func testServiceSessionFollowsAddAndRemoveWhileTrackingWithAlways() throws {
         let h = GeofenceHarness()
         h.manager.onTrackingStarted(always: true)
+        XCTAssertEqual(h.backend.sessions.last, false)
         try h.manager.add([circle("home")])
-        h.manager.onTrackingStarted(always: true); h.manager.onTrackingStarted(always: false); h.manager.onTrackingStopped()
-        XCTAssertEqual(h.backend.sessions, [false, true, false, false])
+        XCTAssertEqual(h.backend.sessions.last, true)
+        try h.manager.add([circle("mute", notifyOnEntry: false, notifyOnExit: false)])
+        try h.manager.remove(["home"])
+        XCTAssertEqual(h.backend.sessions.last, false, "only an inactive geofence is left")
+        try h.manager.add([circle("home")]); XCTAssertEqual(h.backend.sessions.last, true)
+        try h.manager.removeAll(); XCTAssertEqual(h.backend.sessions.last, false)
+        try h.manager.add([circle("home")]); h.manager.onTrackingStarted(always: false)
+        XCTAssertEqual(h.backend.sessions.last, false)
+        h.manager.onTrackingStopped(); XCTAssertEqual(h.backend.sessions.last, false)
+        let stopped = h.backend.sessions.count
+        try h.manager.add([circle("away")])
+        XCTAssertEqual(h.backend.sessions.count, stopped, "no session while tracking is stopped")
+    }
+    func testApproximateAccuracyNotifiesEveryBlockedAttempt() throws {
+        let h = GeofenceHarness()
+        var blocked = 0
+        h.manager.blocked = { blocked += 1 }
+        h.manager.setSuspended(true)
+        h.manager.onTrackingStarted()
+        XCTAssertEqual(blocked, 0, "nothing is blocked without geofences")
+        try h.manager.add([circle("home")])
+        XCTAssertEqual(blocked, 1); XCTAssertTrue(h.backend.registered.isEmpty)
+        h.manager.onTrackingStopped(); h.manager.onTrackingStarted()
+        XCTAssertEqual(blocked, 2)
+        h.manager.setSuspended(false); XCTAssertEqual(Set(h.backend.registered.keys), ["home"])
+        h.manager.setSuspended(true); XCTAssertEqual(blocked, 3)
     }
 }
 

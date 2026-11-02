@@ -54,6 +54,7 @@ final class TrackingCore {
     private func attachGeofences(_ backend: GeofenceBackend) {
         let manager = GeofenceManager(store: SQLiteGeofenceStore(store: store), backend: backend, queue: queue, now: { [unowned self] in self.clock().wall }, automaticTimers: automaticTimers, initialTriggerEntry: { [unowned self] in self.config.value.object("geofence").flag("initialTriggerEntry", true) }, enabled: { [unowned self] in self.runtime.flag("enabled") }, storedLocation: { [unowned self] in TrackedLocation.from(self.runtime.object("lastLocation")) }, notify: { [unowned self] in self.engine.recordGeofence($0, $1, $2) }, changed: { [unowned self] on, off in self.emit("geofenceschange", ["on": on.map(\.json), "off": off]) }, log: { [unowned self] level, message in self.log.write(level, "Geofences: " + message) })
         manager.demandChanged = { [unowned self] in self.engine.geofenceDemandChanged($0) }
+        manager.blocked = { [unowned self] in self.engine.geofencesBlocked() }
         if #available(iOS 17.0, *), let monitor = backend as? GeofenceMonitor {
             monitor.transitions = { [weak manager] in manager?.onTransitions($0) }
             monitor.diagnostic = { [weak self] level, message in self?.log.write(level, message) }

@@ -327,14 +327,9 @@ final class TrackingEngine {
         wire["geofence"] = hit
         core.deliver(wire, location: location)
     }
-    private func updateGeofenceAccess() {
-        guard let geofences else { return }
-        let limited = provider.text("accuracy") == "approximate"
-        let changed = limited != geofences.suspended
-        geofences.setSuspended(limited)
-        if limited && changed && core.runtime.flag("enabled") && !geofences.isEmpty {
-            core.emit("locationerror", ["code": "PERMISSION_DENIED", "message": "Geofences need precise location; stored geofences stay inactive while location accuracy is approximate", "backend": "corelocation", "retryInMs": NSNull()])
-        }
+    private func updateGeofenceAccess() { geofences?.setSuspended(provider.text("accuracy") == "approximate") }
+    func geofencesBlocked() {
+        core.emit("locationerror", ["code": "PERMISSION_DENIED", "message": "Geofences need precise location; stored geofences stay inactive while location accuracy is approximate", "backend": "corelocation", "retryInMs": NSNull()])
     }
     private func submit(_ event: String, _ location: TrackedLocation?, reason: String? = nil) {
         var wire = core.makeRecord(event: event, fix: location)
