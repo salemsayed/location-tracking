@@ -74,9 +74,12 @@ final class GeofenceMonitor: GeofenceBackend, @unchecked Sendable {
     }
 
     private func handle(_ value: MonitorEventValue) {
-        let (transitions, failures) = adapter.handle(value.id, value.state, failures: value.diagnostics)
-        if !failures.isEmpty { self.failures?(failures) }
-        if !transitions.isEmpty { self.transitions?(transitions) }
+        publish(adapter.handle(value.id, value.state, failures: value.diagnostics))
+    }
+
+    private func publish(_ result: ([OsGeofenceTransition], [MonitorFailure])) {
+        if !result.1.isEmpty { failures?(result.1) }
+        if !result.0.isEmpty { transitions?(result.0) }
     }
 
     private func enqueue(_ operation: @escaping (MonitorClient) async -> Void) {
@@ -94,17 +97,21 @@ final class GeofenceMonitor: GeofenceBackend, @unchecked Sendable {
     }
 
     func add(_ regions: [OsGeofence]) {
+        guard open() != nil else { return }
         for region in regions {
+            adapter.expect(region.id)
             enqueue { [weak self] client in await self?.register(region, client) }
         }
     }
 
     func restore(_ regions: [OsGeofence]) {
+        guard open() != nil else { return }
         for region in regions {
+            adapter.expect(region.id)
             enqueue { [weak self] client in
                 guard let self else { return }
                 if let saved = await client.condition(region.id), Self.same(saved, region) {
-                    await self.onQueue { self.adapter.restored(region.id, initialTriggerEntry: region.initialTriggerEntry, state: saved.state) }
+                    await self.onQueue { self.publish(self.adapter.restored(region.id, initialTriggerEntry: region.initialTriggerEntry, state: saved.state)) }
                 } else {
                     await self.register(region, client)
                 }

@@ -37,8 +37,22 @@ final class GeofenceEventAdapterTests: XCTestCase {
     func testAPersistedInsideStateReportsTheExitMissedWhileTheAppWasGone() {
         adapter.seed("home", .satisfied)
         adapter.seed("home", .unsatisfied)
+        _ = adapter.restored("home", initialTriggerEntry: true, state: .unsatisfied)
         XCTAssertEqual(actions("home", .unsatisfied), ["EXIT"])
         XCTAssertEqual(actions("home", .unsatisfied), [])
+    }
+    func testEventsWaitForTheRestoreOrRegistrationOfTheirGeofence() {
+        adapter.seed("home", .unknown); adapter.expect("home")
+        XCTAssertEqual(actions("home", .satisfied), [])
+        XCTAssertEqual(adapter.restored("home", initialTriggerEntry: false, state: .unknown).0, [], "the held first determination uses the restored initialTriggerEntry false")
+        XCTAssertEqual(actions("home", .unsatisfied), ["EXIT"])
+        adapter.seed("gym", .unsatisfied)
+        XCTAssertEqual(actions("gym", .satisfied), [])
+        XCTAssertEqual(adapter.restored("gym", initialTriggerEntry: false, state: .unsatisfied).0.map(\.action), [.enter])
+        adapter.seed("work", .unknown); adapter.expect("work")
+        XCTAssertEqual(actions("work", .satisfied), [])
+        adapter.registered("work", initialTriggerEntry: true)
+        XCTAssertEqual(actions("work", .unsatisfied), ["EXIT:initial"], "a fresh registration drops the events held for the condition it replaces")
     }
     func testFailuresAreReportedOncePerGeofenceAndCodeUntilAHealthyEvent() {
         adapter.registered("home", initialTriggerEntry: true)
@@ -63,6 +77,10 @@ final class GeofenceEventAdapterTests: XCTestCase {
 final class FakeMonitorClient: MonitorClient {
     var saved: [String: MonitoredCondition] = [:]
     var added: [String] = []
+    private let lock = NSLock()
+    private var lookups = 0
+    private var holdAfter: Int?
+    private var waiting: [CheckedContinuation<Void, Never>] = []
     private let stream: AsyncStream<MonitorEventValue>
     private let continuation: AsyncStream<MonitorEventValue>.Continuation
     init() {
@@ -71,7 +89,22 @@ final class FakeMonitorClient: MonitorClient {
         continuation = captured
     }
     func identifiers() async -> [String] { saved.keys.sorted() }
-    func condition(_ id: String) async -> MonitoredCondition? { saved[id] }
+    func condition(_ id: String) async -> MonitoredCondition? {
+        let hold: Bool = locked { lookups += 1; return holdAfter.map { lookups > $0 } ?? false }
+        if hold { await withCheckedContinuation { park($0) } }
+        return saved[id]
+    }
+    func holdLookups(after count: Int) { locked { holdAfter = count } }
+    var heldLookups: Int { locked { waiting.count } }
+    func releaseLookups() {
+        let resumed: [CheckedContinuation<Void, Never>] = locked { holdAfter = nil; defer { waiting = [] }; return waiting }
+        resumed.forEach { $0.resume() }
+    }
+    private func park(_ continuation: CheckedContinuation<Void, Never>) {
+        let parked: Bool = locked { if holdAfter == nil { return false }; waiting.append(continuation); return true }
+        if !parked { continuation.resume() }
+    }
+    private func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
     func add(_ region: OsGeofence) async { added.append(region.id); saved[region.id] = MonitoredCondition(state: .unknown, latitude: region.latitude, longitude: region.longitude, radius: region.radius) }
     func remove(_ id: String) async { saved[id] = nil }
     func consume(_ handler: @escaping (MonitorEventValue) -> Void) async throws { for await value in stream { handler(value) } }
@@ -89,6 +122,13 @@ final class GeofenceMonitorTests: XCTestCase {
     func waitForHits(_ count: Int) async {
         var attempts = 0
         while attempts < 300, hits.count < count {
+            attempts += 1
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+    func settle(_ client: FakeMonitorClient) async {
+        var attempts = 0
+        while attempts < 300, client.heldLookups == 0 {
             attempts += 1
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
@@ -142,6 +182,42 @@ final class GeofenceMonitorTests: XCTestCase {
         await idle(monitor)
         await waitForHits(2)
         XCTAssertEqual(hits, ["home:ENTER", "work:EXIT"])
+    }
+    func testAPendingFirstDeterminationWaitsForTheRestoredInitialTriggerSetting() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unknown)]
+        client.holdLookups(after: 1)
+        let (monitor, manager) = relaunch(client, store(["home": .unknown]))
+        manager.onTrackingStarted()
+        await settle(client)
+        XCTAssertEqual(client.heldLookups, 1, "the restore is delayed after the saved records were loaded")
+        client.emit("home", .satisfied)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(hits, [], "the pending determination is not handled before initialTriggerEntry false is restored")
+        client.releaseLookups()
+        await idle(monitor)
+        XCTAssertEqual(hits, []); XCTAssertEqual(client.added, [])
+        client.emit("home", .unsatisfied)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:EXIT"])
+    }
+    func testAPendingEventOfAChangedConditionIsDroppedByItsFreshRegistration() async {
+        let client = FakeMonitorClient()
+        client.saved = ["home": saved(.unknown, radius: 50)]
+        client.holdLookups(after: 1)
+        let (monitor, manager) = relaunch(client, store(["home": .unknown]))
+        manager.onTrackingStarted()
+        await settle(client)
+        XCTAssertEqual(client.heldLookups, 1, "the registration is delayed after the saved records were loaded")
+        client.emit("home", .satisfied)
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(hits, [], "the replaced condition's pending event is not handled before the fresh registration")
+        client.releaseLookups()
+        await idle(monitor)
+        XCTAssertEqual(hits, []); XCTAssertEqual(client.added, ["home"])
+        client.emit("home", .satisfied); client.emit("home", .unsatisfied)
+        await waitForHits(1)
+        XCTAssertEqual(hits, ["home:EXIT"], "the new condition's initial inside determination stays silent")
     }
     func testARestoredStateThatDidNotChangeStaysSilentUntilARealTransition() async {
         initialTriggerEntry = true
