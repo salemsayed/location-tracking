@@ -99,7 +99,7 @@ jobs:
             ${{ runner.temp }}/ios-tests.xcresult
             ${{ runner.temp }}/ios-permissions.xcresult
             ${{ runner.temp }}/ios-checkin.xcresult
-            ${{ runner.temp }}/*-runner-bootstrap.xcresult
+            ${{ runner.temp }}/*-runner-bootstrap*.xcresult
             ${{ runner.temp }}/ios-precise-host-launch-*.log
             ${{ runner.temp }}/backoffice.log
             ${{ runner.temp }}/native-launch.log
@@ -282,7 +282,7 @@ jobs:
             ${{ runner.temp }}/legacy-launch.log
             ${{ runner.temp }}/ios-legacy-permissions.xcresult
             ${{ runner.temp }}/ios-legacy-checkin.xcresult
-            ${{ runner.temp }}/*-runner-bootstrap.xcresult
+            ${{ runner.temp }}/*-runner-bootstrap*.xcresult
             ${{ runner.temp }}/ios-precise-host-launch-*.log
             ${{ runner.temp }}/ui-samples
             ${{ runner.temp }}/ios-stage2
