@@ -993,7 +993,8 @@
     setFieldValue('tracking', fieldTracking());
     setFieldValue('fix', field.fix ? fmtTimeWithAge(field.fix.at) + ', ' + show(field.fix.event) : '–');
     setFieldValue('coords', field.fix ? fmtCoords(field.fix.coords) : '–');
-    setFieldValue('permission', fieldProvider ? fieldProvider.permission + (fieldProvider.enabled ? '' : ' (Location Services off)') : '–');
+    var undecided = fieldPermissions && fieldPermissions.location === 'prompt';
+    setFieldValue('permission', fieldProvider ? (undecided ? 'not asked yet' : fieldProvider.permission) + (fieldProvider.enabled ? '' : ' (Location Services off)') : '–');
     setFieldValue('accuracy', fieldProvider ? (fieldProvider.accuracy === 'precise' ? 'full (precise)' : fieldProvider.accuracy) : '–');
     setFieldValue(
       'others',
